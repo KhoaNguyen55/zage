@@ -1,4 +1,5 @@
 const std = @import("std");
+const age = @import("age");
 
 pub fn main() !void {
     // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
@@ -11,7 +12,9 @@ pub fn main() !void {
     var bw = std.io.bufferedWriter(stdout_file);
     const stdout = bw.writer();
 
-    try stdout.print("Run `zig build test` to run the tests.\n", .{});
+    const test_test: i32 = age.add(1, 2);
+
+    try stdout.print("Run `zig build test` to run the tests {}.\n", .{test_test});
 
     try bw.flush(); // don't forget to flush!
 }
