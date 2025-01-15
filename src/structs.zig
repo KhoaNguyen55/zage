@@ -1,5 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const ArenaAllocator = std.heap.ArenaAllocator;
 const ArrayList = std.ArrayList;
 
 const testing = std.testing;
@@ -13,57 +14,75 @@ const version_prefix = "age";
 const stanza_prefix = "-> ";
 const mac_prefix = "---";
 
-const ParseError = error{ HeaderTooSmall, UnsupportedVersion, WrongSection };
+const ParseError = error{ MalformedHeader, UnsupportedVersion, WrongSection };
 
-const Stanza = struct { type: []u8, args: [][]u8, body: []u8 };
+const Stanza = struct {
+    type: []const u8,
+    args: [][]const u8,
+    body: []const u8,
+    arena_alloc: ArenaAllocator,
+    pub fn parse(src: std.io.AnyReader, allocator: Allocator) !Stanza {
+        var arena_alloc = ArenaAllocator.init(allocator);
+        errdefer arena_alloc.deinit();
+        const alloc = arena_alloc.allocator();
+
+        const args = try splitArgs(src, alloc);
+
+        var body = ArrayList(u8).init(alloc);
+        var old_len = body.items.len;
+        while (old_len == 0 or (body.items.len - old_len >= stanza_columns)) {
+            src.streamUntilDelimiter(body.writer(), '\n', stanza_columns) catch return ParseError.MalformedHeader;
+            old_len = body.items.len;
+        }
+
+        return Stanza{
+            .type = args[0],
+            .args = args[1..],
+            .body = try body.toOwnedSlice(),
+            .arena_alloc = arena_alloc,
+        };
+    }
+
+    pub fn deinit(self: Stanza) void {
+        self.arena_alloc.deinit();
+    }
+};
+
+test "Stanza parsing" {
+    const test_string = "ssh-ed25519 fCt7bg 6Dk4AxifdNgIiX0YTBMlm41egmTLbuztNbMMEajOFCw\nSs8s5qOqkOzvz/3SURSvRLIs3qyQ4Qxf+G1sK9O7L4Y\n";
+    var buffer = std.io.fixedBufferStream(test_string);
+    const stanza = try Stanza.parse(buffer.reader().any(), test_allocator);
+    defer stanza.deinit();
+    std.debug.print("{s} {s} {s}\n", .{ stanza.type, stanza.args, stanza.body });
+}
 
 const Header = struct {
     recipients: []Stanza,
     mac: []u8,
-    pub fn parse(src: std.io.AnyReader, _: Allocator) !Header {
+    pub fn parse(src: std.io.AnyReader, allocator: Allocator) !Header {
         try parseVersion(src);
-        // loop
-        //  if prefix = "-> "
-        //   parse stanzas
-        //  else if stanzas == empty
-        //   error
-        //  else
-        //   break
 
-        // const section_prefix = try allocator.alloc(u8, 3);
-        // defer allocator.free(section_prefix);
+        var recipients = ArrayList(Stanza).init(allocator);
+        errdefer recipients.deinit();
 
-        // if (std.mem.eql(u8, section_prefix, "-> ")) {
-        //     // parse stanza
-        // }
-        //
+        var prefix: [3]u8 = undefined;
+        while (true) {
+            const bytes = try src.read(&prefix);
+            if (bytes < 3) {
+                return ParseError.MalformedHeader;
+            }
+            if (std.mem.eql(u8, &prefix, stanza_prefix)) {
+                try recipients.append(try Stanza.parse(src, allocator));
+            } else if (recipients.items.len == 0) {
+                return ParseError.WrongSection;
+            } else {
+                break;
+            }
+        }
+
         // if (std.mem.eql(u8, section_prefix, "---")) {
         //     // check for accuracy
         // }
-    }
-
-    fn parseStanza(src: std.io.AnyReader, allocator: Allocator) !Stanza {
-        // var stanza: Stanza = .{};
-
-        // should be move to function that parse multiple stanzas
-        const prefix: [3]u8 = .{};
-        const bytes = try src.read(prefix);
-        if (bytes < 3) {
-            return ParseError.HeaderTooSmall;
-        }
-        if (!std.mem.eql(u8, prefix, stanza_prefix)) {
-            return ParseError.WrongSection;
-        }
-        //
-
-        // var stanza_type = ArrayList(u8).init(allocator);
-        // errdefer stanza_type.deinit();
-        //
-        // try src.streamUntilDelimiter(stanza_type.writer(), " ", null);
-        // stanza.type = try stanza_type.toOwnedSlice();
-
-        var body = ArrayList(u8).init(allocator);
-        errdefer body.deinit();
     }
 
     /// Return `error` if the version string are wrong
@@ -71,7 +90,7 @@ const Header = struct {
         var buf: std.BoundedArray(u8, version_line.len + 1) = .{};
 
         src.streamUntilDelimiter(buf.writer(), '\n', buf.capacity()) catch |err| switch (err) {
-            error.EndOfStream => return ParseError.HeaderTooSmall,
+            error.EndOfStream => return ParseError.MalformedHeader,
             error.StreamTooLong => return ParseError.UnsupportedVersion,
             else => unreachable,
         };
@@ -97,7 +116,7 @@ test "Too short version string parsing" {
     const test_string = "age-encryption.org/";
     var buffer = std.io.fixedBufferStream(test_string);
     const parse_success = Header.parseVersion(buffer.reader().any());
-    try testing.expectError(ParseError.HeaderTooSmall, parse_success);
+    try testing.expectError(ParseError.MalformedHeader, parse_success);
 }
 
 test "Wrong version section string parsing" {
@@ -152,7 +171,6 @@ test "Split args" {
         }
         test_allocator.free(args);
     }
-    std.debug.print("{s}\n", .{args});
     try testing.expectEqualStrings("age-encrypt", args[0]);
     try testing.expectEqualStrings("ion.org/v123", args[1]);
 }
