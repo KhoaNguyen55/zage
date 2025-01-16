@@ -53,19 +53,29 @@ test "Stanza parsing" {
     var buffer = std.io.fixedBufferStream(test_string);
     const stanza = try Stanza.parse(buffer.reader().any(), test_allocator);
     defer stanza.deinit();
-    std.debug.print("{s} {s} {s}\n", .{ stanza.type, stanza.args, stanza.body });
+    var args = [_][]const u8{ "fCt7bg", "6Dk4AxifdNgIiX0YTBMlm41egmTLbuztNbMMEajOFCw" };
+    const expect = Stanza{
+        .type = "ssh-ed25519",
+        .args = &args,
+        .body = "Ss8s5qOqkOzvz/3SURSvRLIs3qyQ4Qxf+G1sK9O7L4Y",
+        .arena_alloc = undefined,
+    };
+
+    try testing.expectEqualStrings(expect.type, stanza.type);
+    try testing.expectEqualDeep(expect.args, stanza.args);
+    try testing.expectEqualStrings(expect.body, stanza.body);
 }
 
 const Header = struct {
     recipients: []Stanza,
-    mac: []u8,
-    pub fn parse(src: std.io.AnyReader, allocator: Allocator) !Header {
-        try parseVersion(src);
+    mac: []const u8,
+    pub fn parse(src: std.fs.File, allocator: Allocator) !Header {
+        try parseVersion(src.reader());
 
         var recipients = ArrayList(Stanza).init(allocator);
         errdefer recipients.deinit();
 
-        var prefix: [3]u8 = undefined;
+        var prefix: [stanza_prefix.len]u8 = undefined;
         while (true) {
             const bytes = try src.read(&prefix);
             if (bytes < 3) {
@@ -80,9 +90,33 @@ const Header = struct {
             }
         }
 
-        // if (std.mem.eql(u8, section_prefix, "---")) {
-        //     // check for accuracy
-        // }
+        const mac = try parseMac(src, allocator);
+        errdefer allocator.free(mac);
+
+        return Header{
+            .recipients = recipients,
+            .mac = mac,
+        };
+    }
+
+    fn parseMac(src: std.io.AnyReader, allocator: Allocator) ![]const u8 {
+        // discard the space which is after the prefix
+        var prefix: [mac_prefix.len + 1]u8 = undefined;
+
+        if (try src.read(&prefix) != mac_prefix.len + 1) {
+            return ParseError.MalformedHeader;
+        }
+
+        if (!std.mem.eql(u8, prefix[0..3], mac_prefix)) {
+            return ParseError.WrongSection;
+        }
+
+        var mac = ArrayList(u8).init(allocator);
+        errdefer mac.deinit();
+
+        src.streamUntilDelimiter(mac.writer(), '\n', stanza_columns) catch return ParseError.MalformedHeader;
+
+        return mac.toOwnedSlice();
     }
 
     /// Return `error` if the version string are wrong
@@ -104,6 +138,14 @@ const Header = struct {
         }
     }
 };
+
+test "Parse mac" {
+    const test_string = "--- RAnz3UnrF3uSP2d0GVlHgRC81knulcIF5Yl+HENyn0M\n";
+    var buffer = std.io.fixedBufferStream(test_string);
+    const parse_success = try Header.parseMac(buffer.reader().any(), test_allocator);
+    defer test_allocator.free(parse_success);
+    try testing.expectEqualStrings("RAnz3UnrF3uSP2d0GVlHgRC81knulcIF5Yl+HENyn0M", parse_success);
+}
 
 test "Correct version string parsing" {
     const test_string = "age-encryption.org/v1\n";
