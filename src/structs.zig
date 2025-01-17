@@ -216,3 +216,49 @@ test "Split args" {
     try testing.expectEqualStrings("age-encrypt", args[0]);
     try testing.expectEqualStrings("ion.org/v123", args[1]);
 }
+
+const AnyIdentity = struct {
+    context: *const anyopaque,
+    unwrapFn: *const fn (context: *const anyopaque, stanzas: []Stanza) anyerror![]u8,
+
+    pub fn unwrap(self: AnyIdentity, stanzas: []Stanza) anyerror![]u8 {
+        return self.unwrapFn(self.context, stanzas);
+    }
+};
+
+const X25519Identity = struct {
+    secret_key: []u8,
+    our_public_key: []u8,
+
+    pub fn parse(secret_key: []const u8) !X25519Identity {
+        _ = secret_key;
+        // TODO: check if its valid key
+        // TODO: get public from secret key
+        return X25519Identity{
+            .secret_key = undefined,
+            .our_public_key = undefined,
+        };
+    }
+
+    pub fn unwrap(context: *const anyopaque, stanzas: []Stanza) ![]u8 {
+        const self: *const X25519Identity = @ptrCast(@alignCast(context));
+        _ = self;
+        _ = stanzas;
+        // TODO: parse stanzas and get out file key
+        return undefined;
+    }
+
+    pub fn any(self: *const X25519Identity) AnyIdentity {
+        return AnyIdentity{ .context = self, .unwrapFn = unwrap };
+    }
+};
+
+fn decrypt(identity: AnyIdentity) !void {
+    _ = try identity.unwrap(undefined);
+}
+
+test "Identity test" {
+    const test_string: []const u8 = "wip";
+    const x25519 = try X25519Identity.parse(test_string);
+    try decrypt(x25519.any());
+}
