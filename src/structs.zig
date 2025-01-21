@@ -16,7 +16,13 @@ const version_prefix = "age";
 const stanza_prefix = "-> ";
 const mac_prefix = "---";
 
-const ParseError = error{ MalformedHeader, UnsupportedVersion, WrongSection };
+const Error = error{
+    MalformedHeader,
+    UnsupportedVersion,
+    WrongSection,
+    WrongKeyHrp,
+    InvalidX25519SecretKey,
+};
 
 const Stanza = struct {
     type: []const u8,
@@ -33,7 +39,7 @@ const Stanza = struct {
         var body = ArrayList(u8).init(alloc);
         var old_len = body.items.len;
         while (old_len == 0 or (body.items.len - old_len >= stanza_columns)) {
-            src.streamUntilDelimiter(body.writer(), '\n', stanza_columns) catch return ParseError.MalformedHeader;
+            src.streamUntilDelimiter(body.writer(), '\n', stanza_columns) catch return Error.MalformedHeader;
             old_len = body.items.len;
         }
 
@@ -81,12 +87,12 @@ const Header = struct {
         while (true) {
             const bytes = try src.read(&prefix);
             if (bytes < 3) {
-                return ParseError.MalformedHeader;
+                return Error.MalformedHeader;
             }
             if (std.mem.eql(u8, &prefix, stanza_prefix)) {
                 try recipients.append(try Stanza.parse(src, allocator));
             } else if (recipients.items.len == 0) {
-                return ParseError.WrongSection;
+                return Error.WrongSection;
             } else {
                 break;
             }
@@ -106,17 +112,17 @@ const Header = struct {
         var prefix: [mac_prefix.len + 1]u8 = undefined;
 
         if (try src.read(&prefix) != mac_prefix.len + 1) {
-            return ParseError.MalformedHeader;
+            return Error.MalformedHeader;
         }
 
         if (!std.mem.eql(u8, prefix[0..3], mac_prefix)) {
-            return ParseError.WrongSection;
+            return Error.WrongSection;
         }
 
         var mac = ArrayList(u8).init(allocator);
         errdefer mac.deinit();
 
-        src.streamUntilDelimiter(mac.writer(), '\n', stanza_columns) catch return ParseError.MalformedHeader;
+        src.streamUntilDelimiter(mac.writer(), '\n', stanza_columns) catch return Error.MalformedHeader;
 
         return mac.toOwnedSlice();
     }
@@ -126,17 +132,17 @@ const Header = struct {
         var buf: std.BoundedArray(u8, version_line.len + 1) = .{};
 
         src.streamUntilDelimiter(buf.writer(), '\n', buf.capacity()) catch |err| switch (err) {
-            error.EndOfStream => return ParseError.MalformedHeader,
-            error.StreamTooLong => return ParseError.UnsupportedVersion,
+            error.EndOfStream => return Error.MalformedHeader,
+            error.StreamTooLong => return Error.UnsupportedVersion,
             else => unreachable,
         };
 
         if (!std.mem.eql(u8, buf.slice()[0..3], version_prefix)) {
-            return ParseError.WrongSection;
+            return Error.WrongSection;
         }
 
         if (!std.mem.eql(u8, buf.slice(), version_line)) {
-            return ParseError.UnsupportedVersion;
+            return Error.UnsupportedVersion;
         }
     }
 };
@@ -160,28 +166,28 @@ test "Too short version string parsing" {
     const test_string = "age-encryption.org/";
     var buffer = std.io.fixedBufferStream(test_string);
     const parse_success = Header.parseVersion(buffer.reader().any());
-    try testing.expectError(ParseError.MalformedHeader, parse_success);
+    try testing.expectError(Error.MalformedHeader, parse_success);
 }
 
 test "Wrong version section string parsing" {
     const test_string = "----encryption.org/v3\n";
     var buffer = std.io.fixedBufferStream(test_string);
     const parse_success = Header.parseVersion(buffer.reader().any());
-    try testing.expectError(ParseError.WrongSection, parse_success);
+    try testing.expectError(Error.WrongSection, parse_success);
 }
 
 test "Different version string parsing" {
     const test_string = "age-encryption.org/v3\n";
     var buffer = std.io.fixedBufferStream(test_string);
     const parse_success = Header.parseVersion(buffer.reader().any());
-    try testing.expectError(ParseError.UnsupportedVersion, parse_success);
+    try testing.expectError(Error.UnsupportedVersion, parse_success);
 }
 
 test "Too long version string parsing" {
     const test_string = "age-encryption.org/v123\n";
     var buffer = std.io.fixedBufferStream(test_string);
     const parse_success = Header.parseVersion(buffer.reader().any());
-    try testing.expectError(ParseError.UnsupportedVersion, parse_success);
+    try testing.expectError(Error.UnsupportedVersion, parse_success);
 }
 
 fn splitArgs(src: std.io.AnyReader, allocator: Allocator) ![][]const u8 {
