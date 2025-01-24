@@ -30,13 +30,13 @@ pub const Stanza = struct {
     type: string,
     args: []string,
     body: []const u8,
-    arena_alloc: ArenaAllocator,
-    pub fn parse(src: std.io.AnyReader, allocator: Allocator) !Stanza {
+    allocator: ArenaAllocator,
+    pub fn parse(allocator: Allocator, src: std.io.AnyReader) anyerror!Stanza {
         var arena_alloc = ArenaAllocator.init(allocator);
         errdefer arena_alloc.deinit();
         const alloc = arena_alloc.allocator();
 
-        const args = try splitArgs(src, alloc);
+        const args = try splitArgs(alloc, src);
 
         var body = ArrayList(u8).init(alloc);
         var old_len = body.items.len;
@@ -58,26 +58,28 @@ pub const Stanza = struct {
             .type = args[0],
             .args = args[1..],
             .body = decoded_body,
-            .arena_alloc = arena_alloc,
+            .allocator = arena_alloc,
+        };
+    }
         };
     }
 
     pub fn deinit(self: Stanza) void {
-        self.arena_alloc.deinit();
+        self.allocator.deinit();
     }
 };
 
 test "Stanza parsing" {
     const test_string = "ssh-ed25519 fCt7bg 6Dk4AxifdNgIiX0YTBMlm41egmTLbuztNbMMEajOFCw\nSs8s5qOqkOzvz/3SURSvRLIs3qyQ4Qxf+G1sK9O7L4Y\n";
     var buffer = std.io.fixedBufferStream(test_string);
-    const stanza = try Stanza.parse(buffer.reader().any(), test_allocator);
+    const stanza = try Stanza.parse(test_allocator, buffer.reader().any());
     defer stanza.deinit();
     var args = [_]string{ "fCt7bg", "6Dk4AxifdNgIiX0YTBMlm41egmTLbuztNbMMEajOFCw" };
     const expect = Stanza{
         .type = "ssh-ed25519",
         .args = &args,
         .body = undefined,
-        .arena_alloc = undefined,
+        .allocator = undefined,
     };
 
     try testing.expectEqualStrings(expect.type, stanza.type);
@@ -101,7 +103,7 @@ pub const Header = struct {
                 return Error.MalformedHeader;
             }
             if (std.mem.eql(u8, &prefix, stanza_prefix)) {
-                try recipients.append(try Stanza.parse(src, allocator));
+                try recipients.append(try Stanza.parse(allocator, src));
             } else if (recipients.items.len == 0) {
                 return Error.WrongSection;
             } else {
@@ -201,7 +203,7 @@ test "Too long version string parsing" {
     try testing.expectError(Error.UnsupportedVersion, parse_success);
 }
 
-fn splitArgs(src: std.io.AnyReader, allocator: Allocator) ![][]const u8 {
+fn splitArgs(allocator: Allocator, src: std.io.AnyReader) ![]string {
     var arguments = ArrayList(u8).init(allocator);
     errdefer arguments.deinit();
 
@@ -225,7 +227,7 @@ fn splitArgs(src: std.io.AnyReader, allocator: Allocator) ![][]const u8 {
 test "Split args" {
     const test_string = "age-encrypt ion.org/v123\n";
     var buffer = std.io.fixedBufferStream(test_string);
-    const args = try splitArgs(buffer.reader().any(), test_allocator);
+    const args = try splitArgs(test_allocator, buffer.reader().any());
     defer {
         for (args) |slice| {
             test_allocator.free(slice);
