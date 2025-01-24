@@ -18,6 +18,8 @@ const version_prefix = "age";
 const stanza_prefix = "-> ";
 const mac_prefix = "---";
 
+pub const string = []const u8;
+
 pub const Error = error{
     MalformedHeader,
     UnsupportedVersion,
@@ -25,8 +27,8 @@ pub const Error = error{
 };
 
 pub const Stanza = struct {
-    type: []const u8,
-    args: [][]const u8,
+    type: string,
+    args: []string,
     body: []const u8,
     arena_alloc: ArenaAllocator,
     pub fn parse(src: std.io.AnyReader, allocator: Allocator) !Stanza {
@@ -51,7 +53,6 @@ pub const Stanza = struct {
         const size = try base64Decoder.calcSizeForSlice(body_slice);
         const decoded_body = try alloc.alloc(u8, size);
         try base64Decoder.decode(decoded_body, body_slice);
-        std.debug.print("Decoded Body: {any}\n", .{decoded_body});
 
         return Stanza{
             .type = args[0],
@@ -71,7 +72,7 @@ test "Stanza parsing" {
     var buffer = std.io.fixedBufferStream(test_string);
     const stanza = try Stanza.parse(buffer.reader().any(), test_allocator);
     defer stanza.deinit();
-    var args = [_][]const u8{ "fCt7bg", "6Dk4AxifdNgIiX0YTBMlm41egmTLbuztNbMMEajOFCw" };
+    var args = [_]string{ "fCt7bg", "6Dk4AxifdNgIiX0YTBMlm41egmTLbuztNbMMEajOFCw" };
     const expect = Stanza{
         .type = "ssh-ed25519",
         .args = &args,
