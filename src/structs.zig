@@ -238,6 +238,15 @@ test "Split args" {
     try testing.expectEqualStrings("ion.org/v123", args[1]);
 }
 
+pub const AnyRecipient = struct {
+    context: *const anyopaque,
+    wrapFn: *const fn (context: *const anyopaque, allocator: Allocator, file_key: []const u8) anyerror!Stanza,
+
+    pub fn wrap(self: AnyRecipient, allocator: Allocator, file_key: []const u8) anyerror!Stanza {
+        return self.wrapFn(self.context, allocator, file_key);
+    }
+};
+
 pub const AnyIdentity = struct {
     context: *const anyopaque,
     unwrapFn: *const fn (context: *const anyopaque, stanzas: []const Stanza) anyerror![]u8,

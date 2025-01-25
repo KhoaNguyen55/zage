@@ -7,11 +7,14 @@ const ArrayList = std.ArrayList;
 
 const HkdfSha256 = std.crypto.kdf.hkdf.HkdfSha256;
 const ChaCha20Poly1305 = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
+const random = std.crypto.random;
 
 const base64Decoder = std.base64.standard_no_pad.Decoder;
+const base64Encoder = std.base64.standard_no_pad.Encoder;
 
 const structs = @import("structs.zig");
 const AnyIdentity = structs.AnyIdentity;
+const AnyRecipient = structs.AnyRecipient;
 const Stanza = structs.Stanza;
 
 const testing = std.testing;
@@ -28,6 +31,77 @@ const Error = error{
     InvalidStanza,
     InvalidX25519SecretKey,
     InvalidCipherTextSize,
+    InvalidFileKeySize,
+};
+
+const X25519Recipient = struct {
+    their_public_key: [X25519.public_length]u8,
+
+    pub fn parse(key: []const u8) anyerror!X25519Recipient {
+        var buffer: [512]u8 = undefined;
+        var fba = std.heap.FixedBufferAllocator.init(&buffer);
+        const allocator = fba.allocator();
+
+        const decoded_key = try bech32.decode(allocator, key);
+        defer {
+            allocator.free(decoded_key.hrp);
+            allocator.free(decoded_key.data);
+        }
+
+        if (!std.mem.eql(u8, decoded_key.hrp, public_key_hrp)) {
+            return Error.InvalidX25519Hrp;
+        }
+
+        if (decoded_key.data.len != X25519.public_length) {
+            return Error.InvalidX25519SecretKey;
+        }
+        const public_key = decoded_key.data[0..X25519.public_length].*;
+
+        return X25519Recipient{
+            .their_public_key = public_key,
+        };
+    }
+
+    pub fn wrap(context: *const anyopaque, allocator: Allocator, file_key: []const u8) anyerror!Stanza {
+        const self: *const X25519Recipient = @ptrCast(@alignCast(context));
+
+        var ephemeral_secret: [X25519.secret_length]u8 = undefined;
+        random.bytes(&ephemeral_secret);
+
+        const ephemeral_share = try X25519.recoverPublicKey(ephemeral_secret);
+
+        var salt: [X25519.public_length * 2]u8 = undefined;
+        @memcpy(salt[0..ephemeral_share.len], &ephemeral_share);
+        @memcpy(salt[ephemeral_share.len..], &self.their_public_key);
+
+        const shared_secret = try X25519.scalarmult(ephemeral_secret, self.their_public_key);
+        const nonce = [_]u8{0x00} ** ChaCha20Poly1305.nonce_length;
+
+        const overhead_size = file_key_size + ChaCha20Poly1305.tag_length;
+
+        const wrap_key = HkdfSha256.extract(&salt, &shared_secret);
+        var body: [overhead_size]u8 = undefined;
+
+        ChaCha20Poly1305.encrypt(
+            body[0..file_key_size],
+            body[file_key_size..],
+            file_key,
+            "",
+            nonce,
+            wrap_key,
+        );
+
+        return Stanza.create(
+            allocator,
+            "X25519",
+            &.{&ephemeral_share},
+            &body,
+        );
+    }
+
+    pub fn any(self: *const X25519Recipient) AnyRecipient {
+        return AnyRecipient{ .context = self, .wrapFn = wrap };
+    }
 };
 
 const X25519Identity = struct {
