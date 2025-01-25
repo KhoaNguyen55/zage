@@ -61,6 +61,31 @@ pub const Stanza = struct {
             .allocator = arena_alloc,
         };
     }
+
+    pub fn create(
+        allocator: Allocator,
+        stanza_type: string,
+        args: []const []const u8,
+        body: []const u8,
+    ) anyerror!Stanza {
+        var arena_alloc = ArenaAllocator.init(allocator);
+        errdefer arena_alloc.deinit();
+        const alloc = arena_alloc.allocator();
+
+        var args_encoded = try alloc.alloc(string, args.len);
+
+        for (args, 0..) |arg, i| {
+            const size = base64Encoder.calcSize(arg.len);
+            const encoded = try alloc.alloc(u8, size);
+            _ = base64Encoder.encode(encoded, arg);
+            args_encoded[i] = encoded;
+        }
+
+        return Stanza{
+            .type = stanza_type,
+            .args = args_encoded,
+            .body = body,
+            .allocator = arena_alloc,
         };
     }
 
