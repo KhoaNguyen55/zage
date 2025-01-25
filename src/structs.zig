@@ -6,6 +6,7 @@ const ArenaAllocator = std.heap.ArenaAllocator;
 const ArrayList = std.ArrayList;
 
 const base64Decoder = std.base64.standard_no_pad.Decoder;
+const base64Encoder = std.base64.standard_no_pad.Encoder;
 
 const testing = std.testing;
 const test_allocator = std.testing.allocator;
@@ -28,7 +29,7 @@ pub const Error = error{
 
 pub const Stanza = struct {
     type: string,
-    args: []string,
+    args: []const string,
     body: []const u8,
     allocator: ArenaAllocator,
     pub fn parse(allocator: Allocator, src: std.io.AnyReader) anyerror!Stanza {
@@ -87,6 +88,35 @@ pub const Stanza = struct {
             .body = body,
             .allocator = arena_alloc,
         };
+    }
+
+    pub fn format(
+        self: Stanza,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        try writer.print("Stanza(type: {s}, args: ", .{self.type});
+        try writer.writeAll("{");
+        for (self.args, 0..) |arg, i| {
+            try writer.print("{s}", .{arg});
+            if (i < self.args.len - 1) {
+                try writer.writeAll(", ");
+            }
+        }
+        try writer.writeAll("}, ");
+
+        var arena = self.allocator;
+        const alloc = arena.allocator();
+        const size = base64Encoder.calcSize(self.body.len);
+
+        const body_encode = try alloc.alloc(u8, size);
+        defer alloc.free(body_encode);
+
+        _ = base64Encoder.encode(body_encode, self.body);
+
+        try writer.print("body: {s}", .{body_encode});
+        try writer.writeAll(")");
     }
 
     pub fn deinit(self: Stanza) void {
