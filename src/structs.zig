@@ -307,10 +307,10 @@ pub const AnyRecipient = struct {
 
 pub const AnyIdentity = struct {
     context: *const anyopaque,
-    unwrapFn: *const fn (context: *const anyopaque, stanzas: []const Stanza) anyerror![]u8,
+    unwrapFn: *const fn (context: *const anyopaque, dest: []u8, stanzas: []const Stanza) anyerror!void,
 
-    pub fn unwrap(self: AnyIdentity, stanzas: []const Stanza) anyerror![]u8 {
-        return self.unwrapFn(self.context, stanzas);
+    pub fn unwrap(self: AnyIdentity, dest: []u8, stanzas: []const Stanza) anyerror!void {
+        return self.unwrapFn(self.context, dest, stanzas);
     }
 };
 

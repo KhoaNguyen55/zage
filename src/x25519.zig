@@ -135,9 +135,10 @@ const X25519Identity = struct {
         };
     }
 
-    pub fn unwrap(context: *const anyopaque, stanzas: []const Stanza) anyerror![]u8 {
+    pub fn unwrap(context: *const anyopaque, dest: []u8, stanzas: []const Stanza) anyerror!void {
+        std.debug.assert(dest.len == file_key_size);
+
         const self: *const X25519Identity = @ptrCast(@alignCast(context));
-        var file_key: [file_key_size]u8 = undefined;
         for (stanzas) |stanza| {
             if (!std.mem.eql(u8, stanza.type, identity_type)) {
                 continue;
@@ -147,43 +148,43 @@ const X25519Identity = struct {
                 return Error.InvalidStanza;
             }
 
-            const public_key_encrypted = stanza.args[0];
-            const decrypted_len = try base64Decoder.calcSizeForSlice(public_key_encrypted);
+            const ephemeral_share_encoded = stanza.args[0];
+            const decrypted_len = try base64Decoder.calcSizeForSlice(ephemeral_share_encoded);
             if (decrypted_len != X25519.public_length) {
                 return Error.InvalidStanza;
             }
 
-            var public_key: [X25519.public_length]u8 = undefined;
-            try base64Decoder.decode(&public_key, public_key_encrypted);
+            var ephemeral_share: [X25519.public_length]u8 = undefined;
+            try base64Decoder.decode(&ephemeral_share, ephemeral_share_encoded);
 
-            const shared_secret = try X25519.scalarmult(self.secret_key, public_key);
+            var salt: [X25519.public_length * 2]u8 = undefined;
+            @memcpy(salt[0..ephemeral_share.len], &ephemeral_share);
+            @memcpy(salt[ephemeral_share.len..], &self.our_public_key);
+
+            const shared_secret = try X25519.scalarmult(self.secret_key, ephemeral_share);
             if (std.mem.allEqual(u8, &shared_secret, 0x00)) {
                 return Error.InvalidStanza;
             }
 
-            var salt: [X25519.public_length * 2]u8 = undefined;
-            @memcpy(salt[0..public_key.len], &public_key);
-            @memcpy(salt[public_key.len..], &self.our_public_key);
-
             const wrap_key: [32]u8 = HkdfSha256.extract(&salt, &shared_secret);
 
-            std.debug.print("Stanza body: {any}\n", .{stanza.body});
-            if (stanza.body.len != file_key_size + ChaCha20Poly1305.tag_length) {
+            const overhead_size = file_key_size + ChaCha20Poly1305.tag_length;
+
+            if (stanza.body.len != overhead_size) {
                 return Error.InvalidCipherTextSize;
             }
 
             const nonce = [_]u8{0x00} ** ChaCha20Poly1305.nonce_length;
 
             try ChaCha20Poly1305.decrypt(
-                &file_key,
+                dest,
                 stanza.body[0..file_key_size],
-                stanza.body[file_key_size..32].*,
+                stanza.body[file_key_size..overhead_size].*,
                 "",
                 nonce,
                 wrap_key,
             );
         }
-        return &file_key;
     }
 
     pub fn any(self: *const X25519Identity) AnyIdentity {
@@ -191,16 +192,22 @@ const X25519Identity = struct {
     }
 };
 
-test "decrypt file_key test" {
-    const test_string = "X25519 A76ighm6OB6DbLMzD8SA1Ozg7lAbyG6qNNaNoEC+m1w\np0OFXKOnut5HGzfUsfu26JLBPzOJAokn41L5kLvkNtI\n";
-    var buffer = std.io.fixedBufferStream(test_string);
-    const stanza = try Stanza.parse(buffer.reader().any(), test_allocator);
-    defer stanza.deinit();
+test "encrypt/decrypt file_key test" {
+    var expected_key: [file_key_size]u8 = undefined;
+    random.bytes(&expected_key);
+
+    const public_key = "age17mt2y8v5f3chc5dv22jz4unfcqey37v9jtxlcq834hx5cytjvp6s9txfk0";
+    const recipient = (try X25519Recipient.parse(public_key)).any();
+    const wrapped_key = try recipient.wrap(test_allocator, &expected_key);
+    defer wrapped_key.deinit();
 
     const secret_key = "AGE-SECRET-KEY-1QGN768HAM3H3SDL9WRZZYNP9JESEMEQFLFSJYLZE5A52U55WM2GQH8PMPW";
     const x25519 = try X25519Identity.parse(secret_key);
-    _ = try x25519.any().unwrap(&.{stanza});
-    // std.debug.print("{any}\n", .{key});
+    var key: [file_key_size]u8 = undefined;
+    try x25519.any().unwrap(&key, &.{wrapped_key});
+
+    std.debug.print("{s}\n", .{wrapped_key});
+    try testing.expectEqualSlices(u8, &expected_key, &key);
 }
 
 test "Identity test" {
