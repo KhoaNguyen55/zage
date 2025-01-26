@@ -179,71 +179,86 @@ test "Stanza parsing" {
 pub const Header = struct {
     recipients: []Stanza,
     mac: []const u8,
-    pub fn parse(allocator: Allocator, src: std.fs.File) anyerror!Header {
-        try parseVersion(src.reader());
+    // TODO: rewrite this function when peeking api get implemented, see https://github.com/ziglang/zig/issues/4501
+    pub fn parse(allocator: Allocator, reader: std.io.AnyReader) anyerror!Header {
+        var input = ArrayList(u8).init(allocator);
+        defer input.deinit();
+        var start_idx: usize = 0;
+
+        try reader.streamUntilDelimiter(input.writer(), '\n', null);
+        try parseVersion(input.items[start_idx..]);
+        start_idx = input.items.len;
 
         var recipients = ArrayList(Stanza).init(allocator);
         errdefer recipients.deinit();
 
-        var prefix: [stanza_prefix.len]u8 = undefined;
+        var parsing_stanzas = false;
+
         while (true) {
-            const bytes = try src.read(&prefix);
-            if (bytes < 3) {
-                return Error.MalformedHeader;
+            const in_len = input.items.len;
+            try reader.streamUntilDelimiter(input.writer(), '\n', null);
+
+            if (parsing_stanzas) {
+                if (std.mem.eql(u8, input.items[in_len .. in_len + 3], stanza_prefix) or
+                    std.mem.eql(u8, input.items[in_len .. in_len + 3], mac_prefix))
+                {
+                    parsing_stanzas = false;
+                    const stanza = try Stanza.parse(allocator, input.items[start_idx..in_len]);
+                    errdefer stanza.deinit();
+                    try recipients.append(stanza);
+                    start_idx = in_len;
+                }
+            } else if (std.mem.eql(u8, input.items[start_idx .. start_idx + 3], stanza_prefix)) {
+                parsing_stanzas = true;
             }
-            if (std.mem.eql(u8, &prefix, stanza_prefix)) {
-                try recipients.append(try Stanza.parse(allocator, src));
-            } else if (recipients.items.len == 0) {
-                return Error.WrongSection;
-            } else {
+            if (std.mem.eql(u8, input.items[in_len .. in_len + 3], mac_prefix)) {
                 break;
             }
+            try input.append('\n');
         }
 
-        const mac = try parseMac(src, allocator);
+        const mac = try parseMac(allocator, input.items[start_idx..]);
         errdefer allocator.free(mac);
 
         return Header{
-            .recipients = recipients,
+            .recipients = try recipients.toOwnedSlice(),
             .mac = mac,
         };
     }
 
-    fn parseMac(allocator: Allocator, src: std.io.AnyReader) anyerror![]const u8 {
-        // discard the space which is after the prefix
-        var prefix: [mac_prefix.len + 1]u8 = undefined;
+    fn parseMac(
+        allocator: Allocator,
+        /// Mac string, must start with `---` and ends without a newline.
+        input: []const u8,
+    ) anyerror![]const u8 {
+        var args = std.mem.splitScalar(u8, input, ' ');
 
-        if (try src.read(&prefix) != mac_prefix.len + 1) {
+        assert(std.mem.eql(u8, args.first(), mac_prefix));
+
+        if (args.next()) |mac_line| {
+            if (args.next() != null) {
+                return Error.MalformedHeader;
+            }
+
+            const size = try base64Decoder.calcSizeForSlice(mac_line);
+            const mac = try allocator.alloc(u8, size);
+            errdefer allocator.free(mac);
+            try base64Decoder.decode(mac, mac_line);
+            return mac;
+        }
+        return Error.MalformedHeader;
+    }
+    /// Return `error` if the version string are not `version_line`
+    fn parseVersion(
+        /// Version string, must start with `age` and ends without a newline.
+        input: []const u8,
+    ) anyerror!void {
+        assert(std.mem.eql(u8, input[0..3], version_prefix));
+
+        if (input.len < version_line.len) {
             return Error.MalformedHeader;
         }
-
-        if (!std.mem.eql(u8, prefix[0..3], mac_prefix)) {
-            return Error.WrongSection;
-        }
-
-        var mac = ArrayList(u8).init(allocator);
-        errdefer mac.deinit();
-
-        src.streamUntilDelimiter(mac.writer(), '\n', stanza_columns) catch return Error.MalformedHeader;
-
-        return mac.toOwnedSlice();
-    }
-
-    /// Return `error` if the version string are wrong
-    fn parseVersion(src: std.io.AnyReader) anyerror!void {
-        var buf: std.BoundedArray(u8, version_line.len + 1) = .{};
-
-        src.streamUntilDelimiter(buf.writer(), '\n', buf.capacity()) catch |err| switch (err) {
-            error.EndOfStream => return Error.MalformedHeader,
-            error.StreamTooLong => return Error.UnsupportedVersion,
-            else => unreachable,
-        };
-
-        if (!std.mem.eql(u8, buf.slice()[0..3], version_prefix)) {
-            return Error.WrongSection;
-        }
-
-        if (!std.mem.eql(u8, buf.slice(), version_line)) {
+        if (input.len > version_line.len or !std.mem.eql(u8, input, version_line)) {
             return Error.UnsupportedVersion;
         }
     }
