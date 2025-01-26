@@ -4,6 +4,7 @@ const ArrayList = std.ArrayList;
 const testing = std.testing;
 const test_allocator = testing.allocator;
 
+const assert = std.debug.assert;
 const shl = std.math.shl;
 const shr = std.math.shr;
 
@@ -60,28 +61,26 @@ fn polymod(values: []const u8) u32 {
     return chk;
 }
 
-fn hrpExpand(allocator: Allocator, hrp: []const u8) ![]const u8 {
-    const hrp_lower = try std.ascii.allocLowerString(allocator, hrp);
-    defer allocator.free(hrp_lower);
+/// Expands `hrp` into `dest`
+/// `dest.len` must be equal to `(hrp.len * 2) + 1`
+fn hrpExpand(dest: []u8, hrp: []const u8) anyerror!void {
+    assert(dest.len == (hrp.len * 2) + 1);
 
-    var ret = try ArrayList(u8).initCapacity(allocator, (hrp_lower.len * 2) + 1);
-    errdefer ret.deinit();
-
-    for (hrp_lower) |c| {
-        try ret.append(shr(u8, c, 5));
+    for (hrp, 0..) |c, i| {
+        const lc = switch (c) {
+            'A'...'Z' => c | 0b00100000,
+            else => c,
+        };
+        dest[i] = shr(u8, lc, 5);
+        dest[i + (hrp.len + 1)] = lc & 31;
     }
-    try ret.append(0);
-
-    for (hrp_lower) |c| {
-        try ret.append(c & 31);
-    }
-
-    return ret.toOwnedSlice();
+    dest[hrp.len] = 0;
 }
 
 fn createChecksum(allocator: Allocator, hrp: []const u8, data: []const u8) ![]u8 {
-    const expanded_hrp = try hrpExpand(allocator, hrp);
+    const expanded_hrp = try allocator.alloc(u8, hrp.len * 2 + 1);
     defer allocator.free(expanded_hrp);
+    try hrpExpand(expanded_hrp, hrp);
     const padding: []const u8 = &.{ 0, 0, 0, 0, 0, 0 };
     const arrays: []const []const u8 = &.{ expanded_hrp, data, padding };
 
@@ -209,10 +208,11 @@ pub fn decode(allocator: Allocator, string: []const u8) !Bech32 {
     defer allocator.free(data);
 
     // verify checksum
-    const hrp_expanded = try hrpExpand(allocator, hrp);
-    defer allocator.free(hrp_expanded);
+    const expanded_hrp = try allocator.alloc(u8, hrp.len * 2 + 1);
+    defer allocator.free(expanded_hrp);
+    try hrpExpand(expanded_hrp, hrp);
 
-    const arrays: []const []const u8 = &.{ hrp_expanded, data };
+    const arrays: []const []const u8 = &.{ expanded_hrp, data };
 
     const combined = try std.mem.concat(allocator, u8, arrays);
     defer allocator.free(combined);
