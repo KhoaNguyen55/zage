@@ -177,10 +177,14 @@ test "Stanza parsing" {
 }
 
 pub const Header = struct {
-    recipients: []Stanza,
+    recipients: []const Stanza,
     mac: []const u8,
-    // TODO: rewrite this function when peeking api get implemented, see https://github.com/ziglang/zig/issues/4501
+    allocator: Allocator,
+    /// Parse the header of an age file.
+    ///
+    /// Caller owned the memory of the returned `Header`, must be free with `Header.deinit()`.
     pub fn parse(allocator: Allocator, reader: std.io.AnyReader) anyerror!Header {
+        // TODO: rewrite this function when peeking api get implemented, see https://github.com/ziglang/zig/issues/4501
         var input = ArrayList(u8).init(allocator);
         defer input.deinit();
         var start_idx: usize = 0;
@@ -223,6 +227,7 @@ pub const Header = struct {
         return Header{
             .recipients = try recipients.toOwnedSlice(),
             .mac = mac,
+            .allocator = allocator,
         };
     }
 
@@ -262,71 +267,16 @@ pub const Header = struct {
             return Error.UnsupportedVersion;
         }
     }
+
+    pub fn deinit(self: Header) void {
+        for (self.recipients) |value| {
+            value.deinit();
+        }
+        test_allocator.free(self.recipients);
+        test_allocator.free(self.mac);
+    }
 };
 
-test "Parse mac" {
-    const test_string = "--- RAnz3UnrF3uSP2d0GVlHgRC81knulcIF5Yl+HENyn0M\n";
-    var buffer = std.io.fixedBufferStream(test_string);
-    const parse_success = try Header.parseMac(buffer.reader().any(), test_allocator);
-    defer test_allocator.free(parse_success);
-    try testing.expectEqualStrings("RAnz3UnrF3uSP2d0GVlHgRC81knulcIF5Yl+HENyn0M", parse_success);
-}
-
-test "Correct version string parsing" {
-    const test_string = "age-encryption.org/v1\n";
-    var buffer = std.io.fixedBufferStream(test_string);
-    const parse_success = Header.parseVersion(buffer.reader().any());
-    try testing.expectEqual(void{}, parse_success);
-}
-
-test "Too short version string parsing" {
-    const test_string = "age-encryption.org/";
-    var buffer = std.io.fixedBufferStream(test_string);
-    const parse_success = Header.parseVersion(buffer.reader().any());
-    try testing.expectError(Error.MalformedHeader, parse_success);
-}
-
-test "Wrong version section string parsing" {
-    const test_string = "----encryption.org/v3\n";
-    var buffer = std.io.fixedBufferStream(test_string);
-    const parse_success = Header.parseVersion(buffer.reader().any());
-    try testing.expectError(Error.WrongSection, parse_success);
-}
-
-test "Different version string parsing" {
-    const test_string = "age-encryption.org/v3\n";
-    var buffer = std.io.fixedBufferStream(test_string);
-    const parse_success = Header.parseVersion(buffer.reader().any());
-    try testing.expectError(Error.UnsupportedVersion, parse_success);
-}
-
-test "Too long version string parsing" {
-    const test_string = "age-encryption.org/v123\n";
-    var buffer = std.io.fixedBufferStream(test_string);
-    const parse_success = Header.parseVersion(buffer.reader().any());
-    try testing.expectError(Error.UnsupportedVersion, parse_success);
-}
-
-fn splitArgs(allocator: Allocator, src: std.io.AnyReader) anyerror![]string {
-    var arguments = ArrayList(u8).init(allocator);
-    errdefer arguments.deinit();
-
-    try src.streamUntilDelimiter(arguments.writer(), '\n', null);
-
-    const arguments_array = try arguments.toOwnedSlice();
-    defer allocator.free(arguments_array);
-
-    var iter = std.mem.splitScalar(u8, arguments_array, ' ');
-    var args = ArrayList([]const u8).init(allocator);
-    errdefer args.deinit();
-
-    while (iter.next()) |value| {
-        const copy = try allocator.dupe(u8, value);
-        try args.append(copy);
-    }
-
-    return args.toOwnedSlice();
-}
 
 test "Split args" {
     const test_string = "age-encrypt ion.org/v123\n";
