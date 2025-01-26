@@ -97,7 +97,7 @@ pub const Stanza = struct {
         comptime _: []const u8,
         _: std.fmt.FormatOptions,
         writer: anytype,
-    ) !void {
+    ) anyerror!void {
         try writer.print("{s}{s}", .{ stanza_prefix, self.type });
         for (self.args) |arg| {
             try writer.print(" {s}", .{arg});
@@ -148,7 +148,7 @@ test "Stanza parsing" {
 pub const Header = struct {
     recipients: []Stanza,
     mac: []const u8,
-    pub fn parse(src: std.fs.File, allocator: Allocator) !Header {
+    pub fn parse(allocator: Allocator, src: std.fs.File) anyerror!Header {
         try parseVersion(src.reader());
 
         var recipients = ArrayList(Stanza).init(allocator);
@@ -178,7 +178,7 @@ pub const Header = struct {
         };
     }
 
-    fn parseMac(src: std.io.AnyReader, allocator: Allocator) ![]const u8 {
+    fn parseMac(allocator: Allocator, src: std.io.AnyReader) anyerror![]const u8 {
         // discard the space which is after the prefix
         var prefix: [mac_prefix.len + 1]u8 = undefined;
 
@@ -199,7 +199,7 @@ pub const Header = struct {
     }
 
     /// Return `error` if the version string are wrong
-    fn parseVersion(src: std.io.AnyReader) !void {
+    fn parseVersion(src: std.io.AnyReader) anyerror!void {
         var buf: std.BoundedArray(u8, version_line.len + 1) = .{};
 
         src.streamUntilDelimiter(buf.writer(), '\n', buf.capacity()) catch |err| switch (err) {
@@ -261,7 +261,7 @@ test "Too long version string parsing" {
     try testing.expectError(Error.UnsupportedVersion, parse_success);
 }
 
-fn splitArgs(allocator: Allocator, src: std.io.AnyReader) ![]string {
+fn splitArgs(allocator: Allocator, src: std.io.AnyReader) anyerror![]string {
     var arguments = ArrayList(u8).init(allocator);
     errdefer arguments.deinit();
 
