@@ -31,7 +31,7 @@ pub const Stanza = struct {
     type: string,
     args: []const string,
     body: []const u8,
-    allocator: ArenaAllocator,
+    arena: ArenaAllocator,
     pub fn parse(allocator: Allocator, src: std.io.AnyReader) anyerror!Stanza {
         var arena_alloc = ArenaAllocator.init(allocator);
         errdefer arena_alloc.deinit();
@@ -59,7 +59,7 @@ pub const Stanza = struct {
             .type = args[0],
             .args = args[1..],
             .body = decoded_body,
-            .allocator = arena_alloc,
+            .arena = arena_alloc,
         };
     }
 
@@ -82,11 +82,13 @@ pub const Stanza = struct {
             args_encoded[i] = encoded;
         }
 
+        const body_copy = try alloc.dupe(u8, body);
+
         return Stanza{
             .type = stanza_type,
             .args = args_encoded,
-            .body = body,
-            .allocator = arena_alloc,
+            .body = body_copy,
+            .arena = arena_alloc,
         };
     }
 
@@ -96,31 +98,32 @@ pub const Stanza = struct {
         _: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
-        try writer.print("Stanza(type: {s}, args: ", .{self.type});
-        try writer.writeAll("{");
-        for (self.args, 0..) |arg, i| {
-            try writer.print("{s}", .{arg});
-            if (i < self.args.len - 1) {
-                try writer.writeAll(", ");
-            }
+        try writer.print("{s}{s}", .{ stanza_prefix, self.type });
+        for (self.args) |arg| {
+            try writer.print(" {s}", .{arg});
         }
-        try writer.writeAll("}, ");
+        try writer.writeAll("\n");
 
-        var arena = self.allocator;
-        const alloc = arena.allocator();
+        const alloc = self.arena.child_allocator;
         const size = base64Encoder.calcSize(self.body.len);
-
         const body_encode = try alloc.alloc(u8, size);
         defer alloc.free(body_encode);
-
         _ = base64Encoder.encode(body_encode, self.body);
 
-        try writer.print("body: {s}", .{body_encode});
-        try writer.writeAll(")");
+        var start: usize = 0;
+        var end: usize = stanza_columns;
+        var length: usize = size;
+        while (length > stanza_columns) {
+            try writer.print("{s}\n", .{body_encode[start..end]});
+            length -= stanza_columns;
+            start += stanza_columns;
+            end += stanza_columns;
+        }
+        try writer.print("{s}", .{body_encode[start..]});
     }
 
     pub fn deinit(self: Stanza) void {
-        self.allocator.deinit();
+        self.arena.deinit();
     }
 };
 
