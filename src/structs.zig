@@ -8,6 +8,8 @@ const ArrayList = std.ArrayList;
 const base64Decoder = std.base64.standard_no_pad.Decoder;
 const base64Encoder = std.base64.standard_no_pad.Encoder;
 
+const assert = std.debug.assert;
+
 const testing = std.testing;
 const test_allocator = std.testing.allocator;
 
@@ -27,26 +29,55 @@ pub const Error = error{
     WrongSection,
 };
 
+/// Split a string by space( ) and duplicate each substring into an array.
+///
+/// Caller owns the returned array of string.
+fn splitArgs(allocator: Allocator, src: []const u8) anyerror![]string {
+    var iter = std.mem.splitScalar(u8, src, ' ');
+    var args = ArrayList([]const u8).init(allocator);
+    errdefer args.deinit();
+
+    while (iter.next()) |value| {
+        const copy = try allocator.dupe(u8, value);
+        try args.append(copy);
+    }
+
+    return args.toOwnedSlice();
+}
+
 pub const Stanza = struct {
     type: string,
     args: []const string,
     body: []const u8,
     arena: ArenaAllocator,
-    pub fn parse(allocator: Allocator, src: std.io.AnyReader) anyerror!Stanza {
+    /// Parse a stanza string.
+    ///
+    /// Caller owns the returned memory, must be free with `Stanza.deinit()`.
+    pub fn parse(
+        allocator: Allocator,
+        /// input string must start with '-> ', end with a line fewer than 64 characters with no newline.
+        input: []const u8,
+    ) anyerror!Stanza {
         var arena_alloc = ArenaAllocator.init(allocator);
         errdefer arena_alloc.deinit();
         const alloc = arena_alloc.allocator();
 
-        const args = try splitArgs(alloc, src);
+        var lines = std.mem.splitScalar(u8, input, '\n');
+        const args = try splitArgs(alloc, lines.first());
 
+        assert(std.mem.eql(u8, args[0], stanza_prefix[0..2]));
         var body = ArrayList(u8).init(alloc);
-        var old_len = body.items.len;
-        while (true) {
-            src.streamUntilDelimiter(body.writer(), '\n', stanza_columns) catch return Error.MalformedHeader;
-            if (body.items.len != 0 and (body.items.len - old_len < stanza_columns)) {
-                break;
+        var final_len: usize = stanza_columns;
+        while (lines.next()) |line| {
+            if (line.len > stanza_columns) {
+                return Error.MalformedHeader;
             }
-            old_len = body.items.len;
+            try body.appendSlice(line);
+            final_len = line.len;
+        }
+
+        if (final_len >= stanza_columns) {
+            return Error.MalformedHeader;
         }
 
         const body_slice = try body.toOwnedSlice();
