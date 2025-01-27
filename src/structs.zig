@@ -87,8 +87,8 @@ pub const Stanza = struct {
         try base64Decoder.decode(decoded_body, body_slice);
 
         return Stanza{
-            .type = args[0],
-            .args = args[1..],
+            .type = args[1],
+            .args = args[2..],
             .body = decoded_body,
             .arena = arena_alloc,
         };
@@ -159,21 +159,24 @@ pub const Stanza = struct {
 };
 
 test "Stanza parsing" {
-    const test_string = "ssh-ed25519 fCt7bg 6Dk4AxifdNgIiX0YTBMlm41egmTLbuztNbMMEajOFCw\nSs8s5qOqkOzvz/3SURSvRLIs3qyQ4Qxf+G1sK9O7L4Y\n";
-    var buffer = std.io.fixedBufferStream(test_string);
-    const stanza = try Stanza.parse(test_allocator, buffer.reader().any());
+    const test_string =
+        \\-> X25519 n5jfZ5WXT3uBFWFS6ec1CxlfCXh/odc1VMiOllTUuEk
+        \\En8W8T7XL6kXsqG4JcehRyePRDZyqVNCzivRj0sL+4M
+    ;
+    const stanza = try Stanza.parse(test_allocator, test_string);
     defer stanza.deinit();
-    var args = [_]string{ "fCt7bg", "6Dk4AxifdNgIiX0YTBMlm41egmTLbuztNbMMEajOFCw" };
+    var args = [_]string{"n5jfZ5WXT3uBFWFS6ec1CxlfCXh/odc1VMiOllTUuEk"};
     const expect = Stanza{
-        .type = "ssh-ed25519",
+        .type = "X25519",
         .args = &args,
         .body = undefined,
-        .allocator = undefined,
+        .arena = undefined,
     };
 
     try testing.expectEqualStrings(expect.type, stanza.type);
     try testing.expectEqualDeep(expect.args, stanza.args);
     // try testing.expectEqualStrings(expect.body, stanza.body);
+    // TODO: write expected body output in bytes
 }
 
 pub const Header = struct {
