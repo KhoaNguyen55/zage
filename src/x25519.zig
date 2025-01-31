@@ -21,6 +21,7 @@ const file_key_size = structs.file_key_size;
 const testing = std.testing;
 const test_allocator = std.testing.allocator;
 
+const x25519_label = "age-encryption.org/v1/X25519";
 const secret_key_hrp = "AGE-SECRET-KEY-";
 const public_key_hrp = "age";
 const identity_type = "X25519";
@@ -78,7 +79,10 @@ pub const X25519Recipient = struct {
 
         const overhead_size = file_key_size + ChaCha20Poly1305.tag_length;
 
-        const wrap_key = HkdfSha256.extract(&salt, &shared_secret);
+        const prk = HkdfSha256.extract(&salt, &shared_secret);
+        var wrap_key: [ChaCha20Poly1305.key_length]u8 = undefined;
+        HkdfSha256.expand(&wrap_key, x25519_label, prk);
+
         var body: [overhead_size]u8 = undefined;
 
         ChaCha20Poly1305.encrypt(
@@ -163,7 +167,9 @@ pub const X25519Identity = struct {
                 return Error.InvalidStanza;
             }
 
-            const wrap_key: [32]u8 = HkdfSha256.extract(&salt, &shared_secret);
+            const prk = HkdfSha256.extract(&salt, &shared_secret);
+            var wrap_key: [ChaCha20Poly1305.key_length]u8 = undefined;
+            HkdfSha256.expand(&wrap_key, x25519_label, prk);
 
             const overhead_size = file_key_size + ChaCha20Poly1305.tag_length;
 
