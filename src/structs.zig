@@ -234,6 +234,40 @@ pub const Header = struct {
         };
     }
 
+    pub fn format(
+        self: Header,
+        comptime fmt: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) anyerror!void {
+        const print_mac = comptime if (std.mem.eql(u8, fmt, print_with_mac) or
+            std.mem.eql(u8, fmt, "any"))
+            true
+        else if (std.mem.eql(u8, fmt, print_without_mac))
+            false
+        else {
+            @compileError("Unsupported specifier '" ++ fmt ++ "', use '" ++ print_with_mac ++ "' or '" ++ print_without_mac ++ "'");
+        };
+
+        try writer.writeAll(version_line ++ "\n");
+        for (self.recipients) |stanza| {
+            try writer.print("{s}\n", .{stanza});
+        }
+
+        try writer.writeAll(mac_prefix);
+
+        if (print_mac) {
+            const mac = self.mac orelse @panic("Header mac is empty");
+            const alloc = self.allocator;
+            const size = base64Encoder.calcSize(mac.len);
+            const mac_encode = try alloc.alloc(u8, size);
+            defer alloc.free(mac_encode);
+            _ = base64Encoder.encode(mac_encode, &mac);
+
+            try writer.print(" {s}", .{mac_encode});
+        }
+    }
+
     fn parseMac(
         allocator: Allocator,
         /// Mac string, must start with `---` and ends without a newline.
