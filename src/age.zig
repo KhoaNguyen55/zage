@@ -28,6 +28,8 @@ const file_key_size = AgeStructs.file_key_size;
 const payload_key_nonce_length = 16;
 
 const last_chunk_flag = 0x01;
+const payload_label = "payload";
+const header_label = "header";
 
 const Error = error{
     NoValidIdentities,
@@ -73,7 +75,11 @@ pub fn encrypt(
 
     var key_nonce: [payload_key_nonce_length]u8 = undefined;
     random.bytes(&key_nonce);
-    const payload_key = HkdfSha256.extract(&key_nonce, &file_key);
+
+    const prk = HkdfSha256.extract(&key_nonce, &file_key);
+    var payload_key: [ChaCha20Poly1305.key_length]u8 = undefined;
+    HkdfSha256.expand(&payload_key, payload_label, prk);
+
     var payload_nonce: [ChaCha20Poly1305.nonce_length]u8 = .{0} ** ChaCha20Poly1305.nonce_length;
     // TODO: split it into chunks of 64KiB
     setLastChunkFlag(&payload_nonce);
@@ -153,7 +159,10 @@ pub fn decrypt(
     const header_no_mac = try std.fmt.allocPrint(allocator, "{nomac}", .{header});
     defer allocator.free(header_no_mac);
 
-    const hmac_key = HkdfSha256.extract("", &file_key);
+    const prk = HkdfSha256.extract("", &file_key);
+    var hmac_key: [ChaCha20Poly1305.key_length]u8 = undefined;
+    HkdfSha256.expand(&hmac_key, header_label, prk);
+
     var hmac: [HmacSha256.mac_length]u8 = undefined;
     HmacSha256.create(&hmac, header_no_mac, &hmac_key);
 
@@ -166,7 +175,10 @@ pub fn decrypt(
         unreachable;
     }
 
-    const payload_key = HkdfSha256.extract(&key_nonce, &file_key);
+    const payload_prk = HkdfSha256.extract(&key_nonce, &file_key);
+    var payload_key: [ChaCha20Poly1305.key_length]u8 = undefined;
+    HkdfSha256.expand(&payload_key, payload_label, payload_prk);
+
     var payload_nonce: [ChaCha20Poly1305.nonce_length]u8 = .{0} ** ChaCha20Poly1305.nonce_length;
     // TODO: split it into chunks of 64KiB
     setLastChunkFlag(&payload_nonce);
