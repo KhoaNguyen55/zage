@@ -24,10 +24,15 @@ const AnyRecipient = AgeStructs.AnyRecipient;
 
 const version_line = AgeStructs.version_line;
 const mac_prefix = AgeStructs.mac_prefix;
-pub const file_key_size = 16;
-const nonce_length = 16;
+const file_key_size = AgeStructs.file_key_size;
+const payload_key_nonce_length = 16;
 
 const last_chunk_flag = 0x01;
+
+const Error = error{
+    NoValidIdentities,
+    MacsNotEqual,
+};
 
 pub fn encrypt(
     allocator: Allocator,
@@ -66,12 +71,12 @@ pub fn encrypt(
 
     header.mac = hmac;
 
-    var nonce: [nonce_length]u8 = undefined;
-    random.bytes(&nonce);
-    const payload_key = HkdfSha256.extract(&nonce, &file_key);
+    var key_nonce: [payload_key_nonce_length]u8 = undefined;
+    random.bytes(&key_nonce);
+    const payload_key = HkdfSha256.extract(&key_nonce, &file_key);
     var payload_nonce: [ChaCha20Poly1305.nonce_length]u8 = .{0} ** ChaCha20Poly1305.nonce_length;
     // TODO: split it into chunks of 64KiB
-    _ = &payload_nonce;
+    setLastChunkFlag(&payload_nonce);
 
     const encrypted_message = try allocator.alloc(u8, message.len);
     defer allocator.free(encrypted_message);
@@ -90,7 +95,7 @@ pub fn encrypt(
     defer allocator.free(header_string);
     const completed_msg = try std.mem.concat(allocator, u8, &.{
         header_string,
-        &nonce,
+        &key_nonce,
         encrypted_message,
         &tag,
     });
@@ -108,8 +113,8 @@ test "Encryting" {
     const file = try std.fs.cwd().createFile("test_encrypted.age", .{});
     defer file.close();
 
-    std.debug.print("encryted\n", .{});
-    // try file.writeAll(encrypted);
+    // std.debug.print("encryted\n", .{});
+    try file.writeAll(encrypted);
 }
 
 fn setLastChunkFlag(nonce: *[ChaCha20Poly1305.nonce_length]u8) void {
@@ -131,6 +136,68 @@ fn incrementNonce(nonce: *[ChaCha20Poly1305.nonce_length]u8) void {
 
 pub fn decrypt(
     allocator: Allocator,
-    crypted_message: []const u8,
+    encrypted_message: std.io.AnyReader,
     identities: []const AnyIdentity,
-) anyerror![]u8 {}
+) anyerror![]u8 {
+    const header = try Header.parse(allocator, encrypted_message);
+    defer header.deinit();
+
+    const file_key: [file_key_size]u8 = for (identities) |identity| {
+        const key = try identity.unwrap(header.recipients);
+        // const key = identity.unwrap(header.recipients) catch continue;
+        break key.?;
+    } else {
+        return Error.NoValidIdentities;
+    };
+
+    const header_no_mac = try std.fmt.allocPrint(allocator, "{nomac}", .{header});
+    defer allocator.free(header_no_mac);
+
+    const hmac_key = HkdfSha256.extract("", &file_key);
+    var hmac: [HmacSha256.mac_length]u8 = undefined;
+    HmacSha256.create(&hmac, header_no_mac, &hmac_key);
+
+    if (!std.mem.eql(u8, &hmac, &header.mac.?)) {
+        return Error.MacsNotEqual;
+    }
+
+    var key_nonce: [payload_key_nonce_length]u8 = undefined;
+    if (try encrypted_message.read(&key_nonce) < payload_key_nonce_length) {
+        unreachable;
+    }
+
+    const payload_key = HkdfSha256.extract(&key_nonce, &file_key);
+    var payload_nonce: [ChaCha20Poly1305.nonce_length]u8 = .{0} ** ChaCha20Poly1305.nonce_length;
+    // TODO: split it into chunks of 64KiB
+    setLastChunkFlag(&payload_nonce);
+
+    var c_m = try encrypted_message.readAllAlloc(allocator, 64000);
+    defer allocator.free(c_m);
+
+    const m = try allocator.alloc(u8, c_m.len - ChaCha20Poly1305.tag_length);
+    errdefer allocator.free(m);
+
+    var tag: [ChaCha20Poly1305.tag_length]u8 = undefined;
+    @memcpy(&tag, c_m[c_m.len - ChaCha20Poly1305.tag_length ..]);
+
+    try ChaCha20Poly1305.decrypt(
+        m,
+        c_m[0 .. c_m.len - ChaCha20Poly1305.tag_length],
+        tag,
+        "",
+        payload_nonce,
+        payload_key,
+    );
+
+    return m;
+}
+
+test "decrypt" {
+    const secret_key = "AGE-SECRET-KEY-1QGN768HAM3H3SDL9WRZZYNP9JESEMEQFLFSJYLZE5A52U55WM2GQH8PMPW";
+    const identity = try X25519Identity.parse(secret_key);
+    const encrypt_file = try std.fs.cwd().openFile("test.age", .{});
+    defer encrypt_file.close();
+    const message = try decrypt(test_allocator, encrypt_file.reader().any(), &.{identity.any()});
+    defer test_allocator.free(message);
+    std.debug.print("{s}\n", .{message});
+}

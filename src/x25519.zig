@@ -16,11 +16,10 @@ const structs = @import("structs.zig");
 const AnyIdentity = structs.AnyIdentity;
 const AnyRecipient = structs.AnyRecipient;
 const Stanza = structs.Stanza;
+const file_key_size = structs.file_key_size;
 
 const testing = std.testing;
 const test_allocator = std.testing.allocator;
-
-const file_key_size = @import("age.zig").file_key_size;
 
 const secret_key_hrp = "AGE-SECRET-KEY-";
 const public_key_hrp = "age";
@@ -134,10 +133,9 @@ pub const X25519Identity = struct {
         };
     }
 
-    pub fn unwrap(context: *const anyopaque, dest: []u8, stanzas: []const Stanza) anyerror!void {
-        std.debug.assert(dest.len == file_key_size);
-
+    pub fn unwrap(context: *const anyopaque, stanzas: []const Stanza) anyerror!?[file_key_size]u8 {
         const self: *const X25519Identity = @ptrCast(@alignCast(context));
+
         for (stanzas) |stanza| {
             if (!std.mem.eql(u8, stanza.type, identity_type)) {
                 continue;
@@ -175,15 +173,19 @@ pub const X25519Identity = struct {
 
             const nonce = [_]u8{0x00} ** ChaCha20Poly1305.nonce_length;
 
+            var dest: [file_key_size]u8 = undefined;
             try ChaCha20Poly1305.decrypt(
-                dest,
+                &dest,
                 stanza.body[0..file_key_size],
                 stanza.body[file_key_size..overhead_size].*,
                 "",
                 nonce,
                 wrap_key,
             );
+            return dest;
         }
+
+        return null;
     }
 
     pub fn any(self: *const X25519Identity) AnyIdentity {
@@ -202,10 +204,9 @@ test "encrypt/decrypt file_key test" {
 
     const secret_key = "AGE-SECRET-KEY-1QGN768HAM3H3SDL9WRZZYNP9JESEMEQFLFSJYLZE5A52U55WM2GQH8PMPW";
     const x25519 = try X25519Identity.parse(secret_key);
-    var key: [file_key_size]u8 = undefined;
-    try x25519.any().unwrap(&key, &.{wrapped_key});
+    const key = try x25519.any().unwrap(&.{wrapped_key});
 
-    try testing.expectEqualSlices(u8, &expected_key, &key);
+    try testing.expectEqualSlices(u8, &expected_key, &key.?);
 }
 
 test "Identity test" {

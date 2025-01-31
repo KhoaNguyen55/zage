@@ -20,6 +20,7 @@ const stanza_columns = 64;
 const print_with_mac = "mac";
 const print_without_mac = "nomac";
 
+pub const file_key_size = 16;
 pub const version_line = "age-encryption.org/v1";
 pub const version_prefix = "age";
 pub const stanza_prefix = "-> ";
@@ -349,9 +350,9 @@ pub const AnyRecipient = struct {
 
 pub const AnyIdentity = struct {
     context: *const anyopaque,
-    unwrapFn: *const fn (context: *const anyopaque, dest: []u8, stanzas: []const Stanza) anyerror!void,
+    unwrapFn: *const fn (context: *const anyopaque, stanzas: []const Stanza) anyerror!?[file_key_size]u8,
 
-    pub fn unwrap(self: AnyIdentity, dest: []u8, stanzas: []const Stanza) anyerror!void {
-        return self.unwrapFn(self.context, dest, stanzas);
+    pub fn unwrap(self: AnyIdentity, stanzas: []const Stanza) anyerror!?[file_key_size]u8 {
+        return self.unwrapFn(self.context, stanzas);
     }
 };
