@@ -20,7 +20,7 @@ const Stanza = structs.Stanza;
 const testing = std.testing;
 const test_allocator = std.testing.allocator;
 
-const file_key_size = 16;
+const file_key_size = @import("age.zig").file_key_size;
 
 const secret_key_hrp = "AGE-SECRET-KEY-";
 const public_key_hrp = "age";
@@ -34,7 +34,7 @@ const Error = error{
     InvalidFileKeySize,
 };
 
-const X25519Recipient = struct {
+pub const X25519Recipient = struct {
     their_public_key: [X25519.public_length]u8,
 
     pub fn parse(key: []const u8) anyerror!X25519Recipient {
@@ -104,11 +104,10 @@ const X25519Recipient = struct {
     }
 };
 
-const X25519Identity = struct {
+pub const X25519Identity = struct {
     secret_key: [X25519.secret_length]u8,
     our_public_key: [X25519.public_length]u8,
-
-    pub fn parse(key: []const u8) !X25519Identity {
+    pub fn parse(key: []const u8) anyerror!X25519Identity {
         var buffer: [512]u8 = undefined;
         var fba = std.heap.FixedBufferAllocator.init(&buffer);
         const allocator = fba.allocator();
@@ -206,7 +205,6 @@ test "encrypt/decrypt file_key test" {
     var key: [file_key_size]u8 = undefined;
     try x25519.any().unwrap(&key, &.{wrapped_key});
 
-    std.debug.print("{s}\n", .{wrapped_key});
     try testing.expectEqualSlices(u8, &expected_key, &key);
 }
 

@@ -13,13 +13,17 @@ const assert = std.debug.assert;
 const testing = std.testing;
 const test_allocator = std.testing.allocator;
 
-const version_line = "age-encryption.org/v1";
-
+const mac_length = std.crypto.auth.hmac.sha2.HmacSha256.mac_length;
+const decoded_mac_length = 43;
 const stanza_columns = 64;
 
-const version_prefix = "age";
-const stanza_prefix = "-> ";
-const mac_prefix = "---";
+const print_with_mac = "mac";
+const print_without_mac = "nomac";
+
+pub const version_line = "age-encryption.org/v1";
+pub const version_prefix = "age";
+pub const stanza_prefix = "-> ";
+pub const mac_prefix = "---";
 
 pub const string = []const u8;
 
@@ -160,32 +164,41 @@ pub const Stanza = struct {
 
 test "Stanza parsing" {
     const test_string =
-        \\-> X25519 n5jfZ5WXT3uBFWFS6ec1CxlfCXh/odc1VMiOllTUuEk
-        \\En8W8T7XL6kXsqG4JcehRyePRDZyqVNCzivRj0sL+4M
+        \\-> X25519 A76ighm6OB6DbLMzD8SA1Ozg7lAbyG6qNNaNoEC+m1w
+        \\p0OFXKOnut5HGzfUsfu26JLBPzOJAokn41L5kLvkNtI
     ;
     const stanza = try Stanza.parse(test_allocator, test_string);
     defer stanza.deinit();
-    var args = [_]string{"n5jfZ5WXT3uBFWFS6ec1CxlfCXh/odc1VMiOllTUuEk"};
+    var args = [_]string{"A76ighm6OB6DbLMzD8SA1Ozg7lAbyG6qNNaNoEC+m1w"};
+
+    const body = "p0OFXKOnut5HGzfUsfu26JLBPzOJAokn41L5kLvkNtI";
+    const size = try base64Decoder.calcSizeForSlice(body);
+    const decoded_body = try test_allocator.alloc(u8, size);
+    defer test_allocator.free(decoded_body);
+    try base64Decoder.decode(decoded_body, body);
+
     const expect = Stanza{
         .type = "X25519",
         .args = &args,
-        .body = undefined,
+        .body = decoded_body,
         .arena = undefined,
     };
 
     try testing.expectEqualStrings(expect.type, stanza.type);
-    try testing.expectEqualDeep(expect.args, stanza.args);
-    // try testing.expectEqualStrings(expect.body, stanza.body);
+    try testing.expectEqualStrings(expect.args[0], stanza.args[0]);
+    try testing.expectEqualSlices(u8, expect.body, stanza.body);
     // TODO: write expected body output in bytes
 }
 
 pub const Header = struct {
     recipients: []const Stanza,
-    mac: []const u8,
+    mac: ?[mac_length]u8,
     allocator: Allocator,
     /// Parse the header of an age file.
     ///
-    /// Caller owned the memory of the returned `Header`, must be free with `Header.deinit()`.
+    /// After the function returned, `reader` position will be at the start of the payload.
+    ///
+    /// Caller owns the memory of the returned `Header`, must be free with `Header.deinit()`.
     pub fn parse(allocator: Allocator, reader: std.io.AnyReader) anyerror!Header {
         // TODO: rewrite this function when peeking api get implemented, see https://github.com/ziglang/zig/issues/4501
         var input = ArrayList(u8).init(allocator);
@@ -224,8 +237,7 @@ pub const Header = struct {
             try input.append('\n');
         }
 
-        const mac = try parseMac(allocator, input.items[start_idx..]);
-        errdefer allocator.free(mac);
+        const mac = try parseMac(input.items[start_idx..]);
 
         return Header{
             .recipients = try recipients.toOwnedSlice(),
@@ -269,10 +281,10 @@ pub const Header = struct {
     }
 
     fn parseMac(
-        allocator: Allocator,
         /// Mac string, must start with `---` and ends without a newline.
+        /// Must equal to `decoded_mac_length`
         input: []const u8,
-    ) anyerror![]const u8 {
+    ) anyerror![mac_length]u8 {
         var args = std.mem.splitScalar(u8, input, ' ');
 
         assert(std.mem.eql(u8, args.first(), mac_prefix));
@@ -281,11 +293,10 @@ pub const Header = struct {
             if (args.next() != null) {
                 return Error.MalformedHeader;
             }
+            assert(mac_line.len == decoded_mac_length);
 
-            const size = try base64Decoder.calcSizeForSlice(mac_line);
-            const mac = try allocator.alloc(u8, size);
-            errdefer allocator.free(mac);
-            try base64Decoder.decode(mac, mac_line);
+            var mac: [mac_length]u8 = undefined;
+            try base64Decoder.decode(&mac, mac_line);
             return mac;
         }
         return Error.MalformedHeader;
@@ -310,7 +321,6 @@ pub const Header = struct {
             value.deinit();
         }
         test_allocator.free(self.recipients);
-        test_allocator.free(self.mac);
     }
 };
 
@@ -323,7 +333,7 @@ test "Parse header" {
         \\
     ;
     var buffer = std.io.fixedBufferStream(test_string);
-    const parse_success = try Header.parse(test_allocator, buffer.reader().any());
+    var parse_success = try Header.parse(test_allocator, buffer.reader().any());
     defer parse_success.deinit();
     // TODO: write the expected output in bytes
 }
@@ -345,7 +355,3 @@ pub const AnyIdentity = struct {
         return self.unwrapFn(self.context, dest, stanzas);
     }
 };
-
-fn decrypt(identity: AnyIdentity) !void {
-    _ = try identity.unwrap(undefined);
-}
