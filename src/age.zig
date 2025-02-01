@@ -21,6 +21,7 @@ const Header = AgeStructs.Header;
 const Stanza = AgeStructs.Stanza;
 const AnyIdentity = AgeStructs.AnyIdentity;
 const AnyRecipient = AgeStructs.AnyRecipient;
+const computeHkdfKey = @import("primitives.zig").computeHkdfKey;
 
 const version_line = AgeStructs.version_line;
 const mac_prefix = AgeStructs.mac_prefix;
@@ -52,6 +53,7 @@ fn incrementNonce(nonce: *[ChaCha20Poly1305.nonce_length]u8) void {
         }
     }
 }
+
 pub fn encrypt(
     allocator: Allocator,
     message: []const u8,
@@ -83,7 +85,7 @@ pub fn encrypt(
     const header_no_mac = try std.fmt.allocPrint(allocator, "{nomac}", .{header});
     defer allocator.free(header_no_mac);
 
-    const hmac_key = HkdfSha256.extract("", &file_key);
+    const hmac_key = computeHkdfKey(&file_key, "", header_label);
     var hmac: [HmacSha256.mac_length]u8 = undefined;
     HmacSha256.create(&hmac, header_no_mac, &hmac_key);
 
@@ -92,9 +94,7 @@ pub fn encrypt(
     var key_nonce: [payload_key_nonce_length]u8 = undefined;
     random.bytes(&key_nonce);
 
-    const prk = HkdfSha256.extract(&key_nonce, &file_key);
-    var payload_key: [ChaCha20Poly1305.key_length]u8 = undefined;
-    HkdfSha256.expand(&payload_key, payload_label, prk);
+    const payload_key = computeHkdfKey(&file_key, &key_nonce, payload_label);
 
     var payload_nonce: [ChaCha20Poly1305.nonce_length]u8 = .{0} ** ChaCha20Poly1305.nonce_length;
     // TODO: split it into chunks of 64KiB
@@ -158,10 +158,7 @@ pub fn decrypt(
     const header_no_mac = try std.fmt.allocPrint(allocator, "{nomac}", .{header});
     defer allocator.free(header_no_mac);
 
-    const prk = HkdfSha256.extract("", &file_key);
-    var hmac_key: [ChaCha20Poly1305.key_length]u8 = undefined;
-    HkdfSha256.expand(&hmac_key, header_label, prk);
-
+    const hmac_key = computeHkdfKey(&file_key, "", header_label);
     var hmac: [HmacSha256.mac_length]u8 = undefined;
     HmacSha256.create(&hmac, header_no_mac, &hmac_key);
 
@@ -174,9 +171,7 @@ pub fn decrypt(
         unreachable;
     }
 
-    const payload_prk = HkdfSha256.extract(&key_nonce, &file_key);
-    var payload_key: [ChaCha20Poly1305.key_length]u8 = undefined;
-    HkdfSha256.expand(&payload_key, payload_label, payload_prk);
+    const payload_key = computeHkdfKey(&file_key, &key_nonce, payload_label);
 
     var payload_nonce: [ChaCha20Poly1305.nonce_length]u8 = .{0} ** ChaCha20Poly1305.nonce_length;
     // TODO: split it into chunks of 64KiB

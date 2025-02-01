@@ -12,6 +12,8 @@ const random = std.crypto.random;
 const base64Decoder = std.base64.standard_no_pad.Decoder;
 const base64Encoder = std.base64.standard_no_pad.Encoder;
 
+const computeHkdfKey = @import("primitives.zig").computeHkdfKey;
+
 const structs = @import("structs.zig");
 const AnyIdentity = structs.AnyIdentity;
 const AnyRecipient = structs.AnyRecipient;
@@ -79,9 +81,7 @@ pub const X25519Recipient = struct {
 
         const overhead_size = file_key_size + ChaCha20Poly1305.tag_length;
 
-        const prk = HkdfSha256.extract(&salt, &shared_secret);
-        var wrap_key: [ChaCha20Poly1305.key_length]u8 = undefined;
-        HkdfSha256.expand(&wrap_key, x25519_label, prk);
+        const wrap_key = computeHkdfKey(&shared_secret, &salt, x25519_label);
 
         var body: [overhead_size]u8 = undefined;
 
@@ -167,9 +167,7 @@ pub const X25519Identity = struct {
                 return Error.InvalidStanza;
             }
 
-            const prk = HkdfSha256.extract(&salt, &shared_secret);
-            var wrap_key: [ChaCha20Poly1305.key_length]u8 = undefined;
-            HkdfSha256.expand(&wrap_key, x25519_label, prk);
+            const wrap_key = computeHkdfKey(&shared_secret, &salt, x25519_label);
 
             const overhead_size = file_key_size + ChaCha20Poly1305.tag_length;
 
