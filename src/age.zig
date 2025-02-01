@@ -125,20 +125,6 @@ pub fn encrypt(
     return completed_msg;
 }
 
-test "Encryting" {
-    const test_str = "Hello World!";
-    const public_key = "age17mt2y8v5f3chc5dv22jz4unfcqey37v9jtxlcq834hx5cytjvp6s9txfk0";
-    const recipient = (try X25519.X25519Recipient.parse(public_key)).any();
-    const encrypted = try encrypt(test_allocator, test_str, &.{recipient});
-    defer test_allocator.free(encrypted);
-
-    const file = try std.fs.cwd().createFile("test_encrypted.age", .{});
-    defer file.close();
-
-    // std.debug.print("encryted\n", .{});
-    try file.writeAll(encrypted);
-}
-
 pub fn decrypt(
     allocator: Allocator,
     encrypted_message: std.io.AnyReader,
@@ -196,14 +182,4 @@ pub fn decrypt(
     );
 
     return m;
-}
-
-test "decrypt" {
-    const secret_key = "AGE-SECRET-KEY-1QGN768HAM3H3SDL9WRZZYNP9JESEMEQFLFSJYLZE5A52U55WM2GQH8PMPW";
-    const identity = try X25519Identity.parse(secret_key);
-    const encrypt_file = try std.fs.cwd().openFile("test.age", .{});
-    defer encrypt_file.close();
-    const message = try decrypt(test_allocator, encrypt_file.reader().any(), &.{identity.any()});
-    defer test_allocator.free(message);
-    std.debug.print("{s}\n", .{message});
 }

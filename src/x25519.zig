@@ -197,7 +197,7 @@ pub const X25519Identity = struct {
     }
 };
 
-test "encrypt/decrypt file_key test" {
+test "encrypt/decrypt file_key" {
     var expected_key: [file_key_size]u8 = undefined;
     random.bytes(&expected_key);
 
@@ -213,7 +213,7 @@ test "encrypt/decrypt file_key test" {
     try testing.expectEqualSlices(u8, &expected_key, &key.?);
 }
 
-test "Identity test" {
+test "Identity parsing" {
     const expected_sec_key = "AGE-SECRET-KEY-1QGN768HAM3H3SDL9WRZZYNP9JESEMEQFLFSJYLZE5A52U55WM2GQH8PMPW";
     const expected_pub_key = "age17mt2y8v5f3chc5dv22jz4unfcqey37v9jtxlcq834hx5cytjvp6s9txfk0";
     const x25519 = try X25519Identity.parse(expected_sec_key);
@@ -223,4 +223,25 @@ test "Identity test" {
     defer test_allocator.free(pub_key);
     try testing.expectEqualStrings(pub_key, expected_pub_key);
     try testing.expectEqualStrings(sec_key, expected_sec_key);
+}
+
+test "encrypt/decrypt file" {
+    const encrypt = @import("age.zig").encrypt;
+    const decrypt = @import("age.zig").decrypt;
+
+    const test_str = "Hello World!";
+    const public_key = "age17mt2y8v5f3chc5dv22jz4unfcqey37v9jtxlcq834hx5cytjvp6s9txfk0";
+    const recipient = (try X25519Recipient.parse(public_key)).any();
+    const encrypted = try encrypt(test_allocator, test_str, &.{recipient});
+    defer test_allocator.free(encrypted);
+
+    const secret_key = "AGE-SECRET-KEY-1QGN768HAM3H3SDL9WRZZYNP9JESEMEQFLFSJYLZE5A52U55WM2GQH8PMPW";
+    const identity = try X25519Identity.parse(secret_key);
+
+    var encrypt_file = std.io.fixedBufferStream(encrypted);
+
+    const message = try decrypt(test_allocator, encrypt_file.reader().any(), &.{identity.any()});
+    defer test_allocator.free(message);
+
+    try testing.expectEqualStrings(test_str, message);
 }
