@@ -49,8 +49,11 @@ fn splitArgs(allocator: Allocator, src: []const u8) anyerror![][]const u8 {
 }
 
 pub const Stanza = struct {
+    /// String repesenting the type of the stanza
     type: []const u8,
+    /// Argruments of the stanza represented with a slice of base64 encoded string
     args: []const []const u8,
+    /// Encrypted file key represented with a slice of bytes
     body: []const u8,
     arena: ArenaAllocator,
     /// Parse a stanza string.
@@ -97,10 +100,18 @@ pub const Stanza = struct {
         };
     }
 
+    /// Create a stanza
+    ///
+    /// `args` and `body` memory are copied and managed internally
+    ///
+    /// Caller owns the returned memory, must be free with `Stanza.deinit()`.
     pub fn create(
         allocator: Allocator,
+        /// String repesenting the type of the stanza
         stanza_type: []const u8,
+        /// Slice of a slice of bytes representing arguments of the stanza
         args: []const []const u8,
+        /// Slice of bytes representing the encrypted file key
         body: []const u8,
     ) anyerror!Stanza {
         var arena_alloc = ArenaAllocator.init(allocator);
