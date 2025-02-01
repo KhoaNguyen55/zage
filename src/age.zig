@@ -16,16 +16,16 @@ const X25519 = @import("x25519.zig");
 const X25519Identity = X25519.X25519Identity;
 const X25519Recipient = X25519.X25519Recipient;
 
-const AgeStructs = @import("structs.zig");
-const Header = AgeStructs.Header;
-const Stanza = AgeStructs.Stanza;
-const AnyIdentity = AgeStructs.AnyIdentity;
-const AnyRecipient = AgeStructs.AnyRecipient;
+const format = @import("format.zig");
+const Header = format.Header;
+const Stanza = format.Stanza;
+const AnyIdentity = format.AnyIdentity;
+const AnyRecipient = format.AnyRecipient;
 const computeHkdfKey = @import("primitives.zig").computeHkdfKey;
 
-const version_line = AgeStructs.version_line;
-const mac_prefix = AgeStructs.mac_prefix;
-const file_key_size = AgeStructs.file_key_size;
+const version_line = format.version_line;
+const mac_prefix = format.mac_prefix;
+const file_key_size = format.file_key_size;
 const payload_key_nonce_length = 16;
 
 const last_chunk_flag = 0x01;

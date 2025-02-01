@@ -14,11 +14,11 @@ const base64Encoder = std.base64.standard_no_pad.Encoder;
 
 const computeHkdfKey = @import("primitives.zig").computeHkdfKey;
 
-const structs = @import("structs.zig");
-const AnyIdentity = structs.AnyIdentity;
-const AnyRecipient = structs.AnyRecipient;
-const Stanza = structs.Stanza;
-const file_key_size = structs.file_key_size;
+const format = @import("format.zig");
+const AnyIdentity = format.AnyIdentity;
+const AnyRecipient = format.AnyRecipient;
+const Stanza = format.Stanza;
+const file_key_size = format.file_key_size;
 
 const testing = std.testing;
 const test_allocator = std.testing.allocator;
