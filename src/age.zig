@@ -36,6 +36,22 @@ const Error = error{
     MacsNotEqual,
 };
 
+fn setLastChunkFlag(nonce: *[ChaCha20Poly1305.nonce_length]u8) void {
+    nonce.*[nonce.len - 1] = last_chunk_flag;
+}
+
+fn incrementNonce(nonce: *[ChaCha20Poly1305.nonce_length]u8) void {
+    var i = nonce.len - 2;
+    while (i >= 0) : (i -= 1) {
+        nonce.*[i] +%= 1;
+        if (nonce[i] != 0) {
+            break;
+        }
+        if (i == 0) {
+            @panic("Chunk counter wrapped around");
+        }
+    }
+}
 pub fn encrypt(
     allocator: Allocator,
     message: []const u8,
@@ -121,23 +137,6 @@ test "Encryting" {
 
     // std.debug.print("encryted\n", .{});
     try file.writeAll(encrypted);
-}
-
-fn setLastChunkFlag(nonce: *[ChaCha20Poly1305.nonce_length]u8) void {
-    nonce.*[nonce.len - 1] = last_chunk_flag;
-}
-
-fn incrementNonce(nonce: *[ChaCha20Poly1305.nonce_length]u8) void {
-    var i = nonce.len - 2;
-    while (i >= 0) : (i -= 1) {
-        nonce.*[i] +%= 1;
-        if (nonce[i] != 0) {
-            break;
-        }
-        if (i == 0) {
-            @panic("Chunk counter wrapped around");
-        }
-    }
 }
 
 pub fn decrypt(
