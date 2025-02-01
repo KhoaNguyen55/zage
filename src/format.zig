@@ -26,8 +26,6 @@ pub const version_prefix = "age";
 pub const stanza_prefix = "-> ";
 pub const mac_prefix = "---";
 
-pub const string = []const u8;
-
 pub const Error = error{
     MalformedHeader,
     UnsupportedVersion,
@@ -37,7 +35,7 @@ pub const Error = error{
 /// Split a string by space( ) and duplicate each substring into an array.
 ///
 /// Caller owns the returned array of string.
-fn splitArgs(allocator: Allocator, src: []const u8) anyerror![]string {
+fn splitArgs(allocator: Allocator, src: []const u8) anyerror![][]const u8 {
     var iter = std.mem.splitScalar(u8, src, ' ');
     var args = ArrayList([]const u8).init(allocator);
     errdefer args.deinit();
@@ -51,8 +49,8 @@ fn splitArgs(allocator: Allocator, src: []const u8) anyerror![]string {
 }
 
 pub const Stanza = struct {
-    type: string,
-    args: []const string,
+    type: []const u8,
+    args: []const []const u8,
     body: []const u8,
     arena: ArenaAllocator,
     /// Parse a stanza string.
@@ -101,7 +99,7 @@ pub const Stanza = struct {
 
     pub fn create(
         allocator: Allocator,
-        stanza_type: string,
+        stanza_type: []const u8,
         args: []const []const u8,
         body: []const u8,
     ) anyerror!Stanza {
@@ -109,7 +107,7 @@ pub const Stanza = struct {
         errdefer arena_alloc.deinit();
         const alloc = arena_alloc.allocator();
 
-        var args_encoded = try alloc.alloc(string, args.len);
+        var args_encoded = try alloc.alloc([]const u8, args.len);
 
         for (args, 0..) |arg, i| {
             const size = base64Encoder.calcSize(arg.len);
@@ -170,7 +168,7 @@ test "Stanza parsing" {
     ;
     const stanza = try Stanza.parse(test_allocator, test_string);
     defer stanza.deinit();
-    var args = [_]string{"A76ighm6OB6DbLMzD8SA1Ozg7lAbyG6qNNaNoEC+m1w"};
+    var args = [_][]const u8{"A76ighm6OB6DbLMzD8SA1Ozg7lAbyG6qNNaNoEC+m1w"};
 
     const body = "p0OFXKOnut5HGzfUsfu26JLBPzOJAokn41L5kLvkNtI";
     const size = try base64Decoder.calcSizeForSlice(body);
