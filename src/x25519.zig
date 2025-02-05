@@ -226,19 +226,24 @@ test "Identity parsing" {
 }
 
 test "encrypt/decrypt file" {
-    const encrypt = @import("age.zig").encrypt;
+    const AgeEncryptor = @import("age.zig").AgeEncryptor;
     const decrypt = @import("age.zig").decrypt;
 
     const test_str = "Hello World!";
     const public_key = "age17mt2y8v5f3chc5dv22jz4unfcqey37v9jtxlcq834hx5cytjvp6s9txfk0";
     const recipient = (try X25519Recipient.parse(public_key)).any();
-    const encrypted = try encrypt(test_allocator, test_str, &.{recipient});
-    defer test_allocator.free(encrypted);
+    var array = ArrayList(u8).init(test_allocator);
+    errdefer array.deinit();
+    var encryptor = try AgeEncryptor.encryptInit(test_allocator, &.{recipient}, array.writer().any());
+    try encryptor.update(test_str[0..]);
+    try encryptor.finish();
 
     const secret_key = "AGE-SECRET-KEY-1QGN768HAM3H3SDL9WRZZYNP9JESEMEQFLFSJYLZE5A52U55WM2GQH8PMPW";
     const identity = try X25519Identity.parse(secret_key);
 
-    var encrypt_file = std.io.fixedBufferStream(encrypted);
+    const owned = try array.toOwnedSlice();
+    defer test_allocator.free(owned);
+    var encrypt_file = std.io.fixedBufferStream(owned);
 
     const message = try decrypt(test_allocator, encrypt_file.reader().any(), &.{identity.any()});
     defer test_allocator.free(message);
