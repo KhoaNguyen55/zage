@@ -227,7 +227,7 @@ test "Identity parsing" {
 
 test "encrypt/decrypt file" {
     const AgeEncryptor = @import("age.zig").AgeEncryptor;
-    const decrypt = @import("age.zig").decrypt;
+    const AgeDecryptor = @import("age.zig").AgeDecryptor;
 
     const test_str = "Hello World!";
     const public_key = "age17mt2y8v5f3chc5dv22jz4unfcqey37v9jtxlcq834hx5cytjvp6s9txfk0";
@@ -245,8 +245,16 @@ test "encrypt/decrypt file" {
     defer test_allocator.free(owned);
     var encrypt_file = std.io.fixedBufferStream(owned);
 
-    const message = try decrypt(test_allocator, encrypt_file.reader().any(), &.{identity.any()});
-    defer test_allocator.free(message);
+    var decryptarray = ArrayList(u8).init(test_allocator);
+    errdefer decryptarray.deinit();
+    try AgeDecryptor.decryptFromReaderToWriter(
+        test_allocator,
+        &.{identity.any()},
+        decryptarray.writer().any(),
+        encrypt_file.reader().any(),
+    );
 
-    try testing.expectEqualStrings(test_str, message);
+    const got = try decryptarray.toOwnedSlice();
+    defer test_allocator.free(got);
+    try testing.expectEqualStrings(test_str, got);
 }

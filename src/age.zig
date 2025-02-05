@@ -36,6 +36,9 @@ const chunk_size = 64 * 1024;
 const Error = error{
     NoValidIdentities,
     MacsNotEqual,
+    EmptyLastChunk,
+    DataAfterEnd,
+    DataIsTruncated,
 };
 
 fn setLastChunkFlag(nonce: *[ChaCha20Poly1305.nonce_length]u8) void {
@@ -171,61 +174,106 @@ pub const AgeEncryptor = struct {
     }
 };
 
-pub fn decrypt(
-    allocator: Allocator,
-    encrypted_message: std.io.AnyReader,
-    identities: []const AnyIdentity,
-) anyerror![]u8 {
-    const header = try Header.parse(allocator, encrypted_message);
-    defer header.deinit();
+// TODO: redesign this when peeking api get implemented, see https://github.com/ziglang/zig/issues/4501
+pub const AgeDecryptor = struct {
+    // payload_key: [ChaCha20Poly1305.key_length]u8,
+    // payload_nonce: [payload_nonce_length]u8,
+    // buffer: [chunk_size]u8,
+    // buffer_pos: usize,
+    // dest: std.io.AnyWriter,
 
-    const file_key: [file_key_size]u8 = for (identities) |identity| {
-        const key = try identity.unwrap(header.recipients);
-        // const key = identity.unwrap(header.recipients) catch continue;
-        break key.?;
-    } else {
-        return Error.NoValidIdentities;
-    };
+    /// Initialize the encryption process.
+    /// Use `AgeEncryptor.update()` to write encrypted data to `dest`.
+    /// Must use `AgeEncryptor.finish()` to write the final chunk.
+    pub fn decryptFromReaderToWriter(
+        allocator: Allocator,
+        identities: []const AnyIdentity,
+        dest: std.io.AnyWriter,
+        source: std.io.AnyReader,
+    ) anyerror!void {
+        const header = try Header.parse(allocator, source);
+        defer header.deinit();
 
-    const header_no_mac = try std.fmt.allocPrint(allocator, "{nomac}", .{header});
-    defer allocator.free(header_no_mac);
+        const file_key: [file_key_size]u8 = for (identities) |identity| {
+            const key = identity.unwrap(header.recipients) catch continue;
+            break key.?;
+        } else {
+            return Error.NoValidIdentities;
+        };
 
-    const hmac_key = computeHkdfKey(&file_key, "", header_label);
-    var hmac: [HmacSha256.mac_length]u8 = undefined;
-    HmacSha256.create(&hmac, header_no_mac, &hmac_key);
+        const header_no_mac = try std.fmt.allocPrint(allocator, "{nomac}", .{header});
+        defer allocator.free(header_no_mac);
 
-    if (!std.mem.eql(u8, &hmac, &header.mac.?)) {
-        return Error.MacsNotEqual;
+        const hmac_key = computeHkdfKey(&file_key, "", header_label);
+        var hmac: [HmacSha256.mac_length]u8 = undefined;
+        HmacSha256.create(&hmac, header_no_mac, &hmac_key);
+
+        if (!std.mem.eql(u8, &hmac, &header.mac.?)) {
+            return Error.MacsNotEqual;
+        }
+
+        var key_nonce: [payload_key_nonce_length]u8 = undefined;
+        if (try source.read(&key_nonce) < payload_key_nonce_length) {
+            unreachable;
+        }
+
+        const payload_key = computeHkdfKey(&file_key, &key_nonce, payload_label);
+
+        var payload_nonce = [_]u8{0} ** payload_nonce_length;
+        var encrypt_buffer: [chunk_size]u8 = undefined;
+        var decrypt_buffer: [chunk_size]u8 = undefined;
+        var tag: [ChaCha20Poly1305.tag_length]u8 = undefined;
+        var last = false;
+
+        while (!last) {
+            const read_size = try source.read(&encrypt_buffer);
+            if (read_size < ChaCha20Poly1305.tag_length) {
+                return Error.DataIsTruncated;
+            }
+
+            const chunk_end = read_size - ChaCha20Poly1305.tag_length;
+
+            if (chunk_end == 0) {
+                if (!std.mem.allEqual(u8, &payload_nonce, 0)) {
+                    return Error.EmptyLastChunk;
+                }
+
+                var tmp: [1]u8 = undefined;
+                if (try source.read(&tmp) > 0) {
+                    return Error.DataAfterEnd;
+                }
+            }
+
+            if (chunk_end < chunk_size) {
+                last = true;
+                setLastChunkFlag(&payload_nonce);
+            }
+
+            @memcpy(&tag, encrypt_buffer[chunk_end .. chunk_end + tag.len]);
+
+            ChaCha20Poly1305.decrypt(
+                decrypt_buffer[0..chunk_end],
+                encrypt_buffer[0..chunk_end],
+                tag,
+                "",
+                payload_nonce,
+                payload_key,
+            ) catch {
+                last = true;
+                setLastChunkFlag(&payload_nonce);
+
+                try ChaCha20Poly1305.decrypt(
+                    decrypt_buffer[0..chunk_end],
+                    encrypt_buffer[0..chunk_end],
+                    tag,
+                    "",
+                    payload_nonce,
+                    payload_key,
+                );
+            };
+
+            try dest.writeAll(decrypt_buffer[0..chunk_end]);
+            incrementNonce(&payload_nonce);
+        }
     }
-
-    var key_nonce: [payload_key_nonce_length]u8 = undefined;
-    if (try encrypted_message.read(&key_nonce) < payload_key_nonce_length) {
-        unreachable;
-    }
-
-    const payload_key = computeHkdfKey(&file_key, &key_nonce, payload_label);
-
-    var payload_nonce: [ChaCha20Poly1305.nonce_length]u8 = .{0} ** ChaCha20Poly1305.nonce_length;
-    // TODO: split it into chunks of 64KiB
-    setLastChunkFlag(&payload_nonce);
-
-    var c_m = try encrypted_message.readAllAlloc(allocator, 64000);
-    defer allocator.free(c_m);
-
-    const m = try allocator.alloc(u8, c_m.len - ChaCha20Poly1305.tag_length);
-    errdefer allocator.free(m);
-
-    var tag: [ChaCha20Poly1305.tag_length]u8 = undefined;
-    @memcpy(&tag, c_m[c_m.len - ChaCha20Poly1305.tag_length ..]);
-
-    try ChaCha20Poly1305.decrypt(
-        m,
-        c_m[0 .. c_m.len - ChaCha20Poly1305.tag_length],
-        tag,
-        "",
-        payload_nonce,
-        payload_key,
-    );
-
-    return m;
-}
+};
