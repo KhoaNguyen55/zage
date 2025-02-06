@@ -9,14 +9,14 @@ const random = std.crypto.random;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 
+const computeHkdfKey = @import("primitives.zig").computeHkdfKey;
 const format = @import("format.zig");
 const Header = format.Header;
-const Stanza = format.Stanza;
-const AnyIdentity = format.AnyIdentity;
-const AnyRecipient = format.AnyRecipient;
-const computeHkdfKey = @import("primitives.zig").computeHkdfKey;
+pub const Stanza = format.Stanza;
+pub const AnyIdentity = format.AnyIdentity;
+pub const AnyRecipient = format.AnyRecipient;
+pub const file_key_size = format.file_key_size;
 
-const file_key_size = format.file_key_size;
 const payload_key_nonce_length = 16;
 
 const payload_label = "payload";
