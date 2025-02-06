@@ -57,9 +57,9 @@ pub const AgeEncryptor = struct {
     buffer_pos: usize,
     dest: std.io.AnyWriter,
 
-    /// Initialize the encryption process.
+    /// Initialize the encryption process, the header will be write to `dest`.
     /// Use `AgeEncryptor.update()` to write encrypted data to `dest`.
-    /// Must use `AgeEncryptor.finish()` to write the final chunk.
+    /// Must use `AgeEncryptor.finish()` to complete the encryption process.
     pub fn encryptInit(
         allocator: Allocator,
         recipients: []const AnyRecipient,
