@@ -1,6 +1,4 @@
 const std = @import("std");
-const testing = std.testing;
-const test_allocator = testing.allocator;
 const assert = std.debug.assert;
 
 const ChaCha20Poly1305 = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
@@ -11,10 +9,6 @@ const random = std.crypto.random;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 
-const X25519 = @import("x25519.zig");
-const X25519Identity = X25519.X25519Identity;
-const X25519Recipient = X25519.X25519Recipient;
-
 const format = @import("format.zig");
 const Header = format.Header;
 const Stanza = format.Stanza;
@@ -22,8 +16,6 @@ const AnyIdentity = format.AnyIdentity;
 const AnyRecipient = format.AnyRecipient;
 const computeHkdfKey = @import("primitives.zig").computeHkdfKey;
 
-const version_line = format.version_line;
-const mac_prefix = format.mac_prefix;
 const file_key_size = format.file_key_size;
 const payload_key_nonce_length = 16;
 
@@ -277,3 +269,9 @@ pub const AgeDecryptor = struct {
         }
     }
 };
+
+test {
+    _ = @import("bech32.zig");
+    _ = @import("format.zig");
+    _ = @import("x25519.zig");
+}
