@@ -174,9 +174,6 @@ pub const AgeDecryptor = struct {
     // buffer_pos: usize,
     // dest: std.io.AnyWriter,
 
-    /// Initialize the encryption process.
-    /// Use `AgeEncryptor.update()` to write encrypted data to `dest`.
-    /// Must use `AgeEncryptor.finish()` to write the final chunk.
     pub fn decryptFromReaderToWriter(
         allocator: Allocator,
         identities: []const AnyIdentity,
