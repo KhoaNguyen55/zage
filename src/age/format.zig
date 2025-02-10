@@ -7,6 +7,7 @@ const ArrayList = std.ArrayList;
 
 const base64Decoder = std.base64.standard_no_pad.Decoder;
 const base64Encoder = std.base64.standard_no_pad.Encoder;
+const b64Error = std.base64.Error;
 
 const assert = std.debug.assert;
 
@@ -29,13 +30,12 @@ pub const mac_prefix = "---";
 pub const Error = error{
     MalformedHeader,
     UnsupportedVersion,
-    WrongSection,
-};
+} || Allocator.Error;
 
 /// Split a string by space( ) and duplicate each substring into an array.
 ///
 /// Caller owns the returned array of string.
-fn splitArgs(allocator: Allocator, src: []const u8) anyerror![][]const u8 {
+fn splitArgs(allocator: Allocator, src: []const u8) Allocator.Error![][]const u8 {
     var iter = std.mem.splitScalar(u8, src, ' ');
     var args = ArrayList([]const u8).init(allocator);
     errdefer args.deinit();
@@ -63,7 +63,7 @@ pub const Stanza = struct {
         allocator: Allocator,
         /// input string must start with '-> ', end with a line fewer than 64 characters with no newline.
         input: []const u8,
-    ) anyerror!Stanza {
+    ) Error!Stanza {
         var arena_alloc = ArenaAllocator.init(allocator);
         errdefer arena_alloc.deinit();
         const alloc = arena_alloc.allocator();
@@ -88,9 +88,14 @@ pub const Stanza = struct {
 
         const body_slice = try body.toOwnedSlice();
         defer alloc.free(body_slice);
-        const size = try base64Decoder.calcSizeForSlice(body_slice);
+        const size = base64Decoder.calcSizeForSlice(body_slice) catch return Error.MalformedHeader;
         const decoded_body = try alloc.alloc(u8, size);
-        try base64Decoder.decode(decoded_body, body_slice);
+        base64Decoder.decode(decoded_body, body_slice) catch |err| switch (err) {
+            b64Error.InvalidCharacter, b64Error.InvalidPadding => {
+                return Error.MalformedHeader;
+            },
+            else => unreachable,
+        };
 
         return Stanza{
             .type = args[1],
@@ -113,7 +118,7 @@ pub const Stanza = struct {
         args: []const []const u8,
         /// Slice of bytes representing the encrypted file key
         body: []const u8,
-    ) anyerror!Stanza {
+    ) Allocator.Error!Stanza {
         var arena_alloc = ArenaAllocator.init(allocator);
         errdefer arena_alloc.deinit();
         const alloc = arena_alloc.allocator();
@@ -197,7 +202,6 @@ test "Stanza parsing" {
     try testing.expectEqualStrings(expect.type, stanza.type);
     try testing.expectEqualStrings(expect.args[0], stanza.args[0]);
     try testing.expectEqualSlices(u8, expect.body, stanza.body);
-    // TODO: write expected body output in bytes
 }
 
 pub const Header = struct {
@@ -209,13 +213,19 @@ pub const Header = struct {
     /// After the function returned, `reader` position will be at the start of the payload.
     ///
     /// Caller owns the memory of the returned `Header`, must be free with `Header.deinit()`.
-    pub fn parse(allocator: Allocator, reader: std.io.AnyReader) anyerror!Header {
+    pub fn parse(
+        allocator: Allocator,
+        reader: std.io.AnyReader,
+    ) Error!Header {
         // TODO: rewrite this function when peeking api get implemented, see https://github.com/ziglang/zig/issues/4501
         var input = ArrayList(u8).init(allocator);
         defer input.deinit();
         var start_idx: usize = 0;
 
-        try reader.streamUntilDelimiter(input.writer(), '\n', null);
+        reader.streamUntilDelimiter(input.writer(), '\n', null) catch {
+            return Error.MalformedHeader;
+        };
+
         try parseVersion(input.items[start_idx..]);
         start_idx = input.items.len;
 
@@ -226,7 +236,9 @@ pub const Header = struct {
 
         while (true) {
             const in_len = input.items.len;
-            try reader.streamUntilDelimiter(input.writer(), '\n', null);
+            reader.streamUntilDelimiter(input.writer(), '\n', null) catch {
+                return Error.MalformedHeader;
+            };
 
             if (parsing_stanzas) {
                 if (in_len + 3 > input.items.len) {
@@ -299,7 +311,7 @@ pub const Header = struct {
         /// Mac string, must start with `---` and ends without a newline.
         /// Must equal to `decoded_mac_length`
         input: []const u8,
-    ) anyerror![mac_length]u8 {
+    ) Error![mac_length]u8 {
         var args = std.mem.splitScalar(u8, input, ' ');
 
         assert(std.mem.eql(u8, args.first(), mac_prefix));
@@ -311,7 +323,13 @@ pub const Header = struct {
             assert(mac_line.len == decoded_mac_length);
 
             var mac: [mac_length]u8 = undefined;
-            try base64Decoder.decode(&mac, mac_line);
+            base64Decoder.decode(&mac, mac_line) catch |err| switch (err) {
+                b64Error.InvalidCharacter, b64Error.InvalidPadding => {
+                    return Error.MalformedHeader;
+                },
+                else => unreachable,
+            };
+
             return mac;
         }
         return Error.MalformedHeader;
@@ -320,7 +338,7 @@ pub const Header = struct {
     fn parseVersion(
         /// Version string, must start with `age` and ends without a newline.
         input: []const u8,
-    ) anyerror!void {
+    ) Error!void {
         assert(std.mem.eql(u8, input[0..3], version_prefix));
 
         if (input.len < version_line.len) {
