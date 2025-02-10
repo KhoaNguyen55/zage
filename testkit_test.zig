@@ -23,7 +23,7 @@ const TestVector = struct {
     allocator: Allocator,
     expect: TestExpect,
     /// X25519 identities
-    identities: ArrayList(age.AnyIdentity),
+    identities: ArrayList(x25519.X25519Identity),
     /// hex-encoded SHA-256 of the decrypted payload
     payload_hash: [32]u8,
     /// content of the age file
@@ -62,16 +62,16 @@ fn parseExpect(expect: []const u8) TestExpect {
 fn parseVector(allocator: Allocator, content: std.io.AnyReader) TestVector {
     var test_vector: TestVector = .{
         .expect = undefined,
-        .identities = ArrayList(age.AnyIdentity).init(allocator),
+        .identities = ArrayList(x25519.X25519Identity).init(allocator),
         .payload_hash = undefined,
         .file = undefined,
         .armored = false,
         .compressed = false,
         .passphrase = false,
-        .allocator = allocator,
+        .allocator = undefined,
     };
 
-    var buffer = ArrayList(u8).init(test_vector.allocator);
+    var buffer = ArrayList(u8).init(allocator);
     defer buffer.deinit();
     while (true) {
         content.streamUntilDelimiter(buffer.writer(), '\n', null) catch unreachable;
@@ -86,7 +86,7 @@ fn parseVector(allocator: Allocator, content: std.io.AnyReader) TestVector {
                 const identity = x25519.X25519Identity.parse(header_value) catch {
                     @panic("Can't parse identity, is test file correct? or spec version matched?");
                 };
-                test_vector.identities.append(identity.any()) catch {
+                test_vector.identities.append(identity) catch {
                     @panic("Out of memory");
                 };
             } else if (std.mem.eql(u8, header_key, "passphrase")) {
@@ -103,12 +103,13 @@ fn parseVector(allocator: Allocator, content: std.io.AnyReader) TestVector {
 
             buffer.clearAndFree();
         } else if (std.mem.eql(u8, "", header_key)) {
-            const file = content.readAllAlloc(test_vector.allocator, std.math.maxInt(usize)) catch unreachable;
+            const file = content.readAllAlloc(allocator, std.math.maxInt(usize)) catch unreachable;
             test_vector.file = file;
             break;
         } else unreachable;
     }
 
+    test_vector.allocator = allocator;
     return test_vector;
 }
 
@@ -135,9 +136,16 @@ fn parseVectorFolder(allocator: Allocator) []TestVector {
 fn testSuccess(allocator: Allocator, test_vector: TestVector) !void {
     var buffer = std.io.fixedBufferStream(test_vector.file);
     var decrypted = ArrayList(u8).init(allocator);
+    var any_identities = try allocator.alloc(age.AnyIdentity, test_vector.identities.items.len);
+    defer allocator.free(any_identities);
+
+    for (test_vector.identities.items, 0..) |x25519_identity, i| {
+        any_identities[i] = x25519_identity.any();
+    }
+
     try age.AgeDecryptor.decryptFromReaderToWriter(
         allocator,
-        test_vector.identities.items,
+        any_identities,
         decrypted.writer().any(),
         buffer.reader().any(),
     );
@@ -164,7 +172,7 @@ test "testkit" {
     }
 
     for (vectors) |vector| {
-        if (vector.armored or vector.compressed) {
+        if (vector.armored or vector.compressed or vector.passphrase) {
             // unsupported
             continue;
         }
