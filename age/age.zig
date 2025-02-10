@@ -184,8 +184,8 @@ pub const AgeDecryptor = struct {
         defer header.deinit();
 
         const file_key: [file_key_size]u8 = for (identities) |identity| {
-            const key = identity.unwrap(header.recipients) catch continue;
-            break key.?;
+            const key = try identity.unwrap(header.recipients);
+            if (key) |k| break k;
         } else {
             return Error.NoValidIdentities;
         };

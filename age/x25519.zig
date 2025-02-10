@@ -178,14 +178,16 @@ pub const X25519Identity = struct {
             const nonce = [_]u8{0x00} ** ChaCha20Poly1305.nonce_length;
 
             var dest: [file_key_size]u8 = undefined;
-            try ChaCha20Poly1305.decrypt(
+            ChaCha20Poly1305.decrypt(
                 &dest,
                 stanza.body[0..file_key_size],
                 stanza.body[file_key_size..overhead_size].*,
                 "",
                 nonce,
                 wrap_key,
-            );
+            ) catch {
+                continue;
+            };
             return dest;
         }
 
