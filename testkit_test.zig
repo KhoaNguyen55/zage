@@ -28,6 +28,8 @@ const Vector = struct {
     payload_hash: [32]u8,
     /// content of the age file
     file: []const u8,
+    /// path of the test file
+    test_file_name: []const u8,
     /// not implemented
     /// Passphrase for scrypt recipient stanzas,
     passphrase: bool,
@@ -40,6 +42,7 @@ const Vector = struct {
         self.identities.deinit();
         //TODO: same for passphrase when it get implemented
         self.allocator.free(self.file);
+        self.allocator.free(self.test_file_name);
     }
 };
 
@@ -59,9 +62,10 @@ fn parseExpect(expect: []const u8) TestExpect {
     } else unreachable;
 }
 
-fn parseVector(allocator: Allocator, content: std.io.AnyReader) Vector {
+fn parseVector(allocator: Allocator, content: std.io.AnyReader, file_name: []const u8) Vector {
     var test_vector: Vector = .{
         .expect = undefined,
+        .test_file_name = undefined,
         .identities = ArrayList(x25519.X25519Identity).init(allocator),
         .payload_hash = undefined,
         .file = undefined,
@@ -70,6 +74,7 @@ fn parseVector(allocator: Allocator, content: std.io.AnyReader) Vector {
         .passphrase = false,
         .allocator = undefined,
     };
+    test_vector.test_file_name = allocator.dupe(u8, file_name) catch @panic("Out of memory");
 
     var buffer = ArrayList(u8).init(allocator);
     defer buffer.deinit();
@@ -125,7 +130,7 @@ fn parseVectorFolder(allocator: Allocator) []Vector {
     while (iter.next() catch unreachable) |file| {
         const test_file = testkit.openFile(file.name, .{}) catch unreachable;
         defer test_file.close();
-        vector_array.append(parseVector(allocator, test_file.reader().any())) catch {
+        vector_array.append(parseVector(allocator, test_file.reader().any(), file.name)) catch {
             @panic("Out of memory");
         };
     }
@@ -189,6 +194,9 @@ test "testkit" {
             continue;
         }
 
-        try testVector(test_alloctor, vector);
+        testVector(test_alloctor, vector) catch {
+            std.debug.print("Failed test: {s}\n\n", .{vector.test_file_name});
+            std.debug.print("++++++++++++++++++++++++++++++++++++++++\n", .{});
+        };
     }
 }
