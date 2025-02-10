@@ -23,8 +23,16 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    const run_test = b.addRunArtifact(lib_unit_tests);
+    const lib_testkit = b.addTest(.{
+        .root_source_file = b.path("testkit_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const run_unit_test = b.addRunArtifact(lib_unit_tests);
+    const run_testkit = b.addRunArtifact(lib_testkit);
 
     const test_step = b.step("test", "run tests");
-    test_step.dependOn(&run_test.step);
+    test_step.dependOn(&run_unit_test.step);
+    test_step.dependOn(&run_testkit.step);
 }
