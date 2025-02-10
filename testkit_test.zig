@@ -19,7 +19,7 @@ const TestExpect = enum {
     ArmorFailure,
 };
 
-const TestVector = struct {
+const Vector = struct {
     allocator: Allocator,
     expect: TestExpect,
     /// X25519 identities
@@ -36,7 +36,7 @@ const TestVector = struct {
     /// gzip compression
     compressed: bool,
 
-    pub fn deinit(self: TestVector) void {
+    pub fn deinit(self: Vector) void {
         self.identities.deinit();
         //TODO: same for passphrase when it get implemented
         self.allocator.free(self.file);
@@ -59,8 +59,8 @@ fn parseExpect(expect: []const u8) TestExpect {
     } else unreachable;
 }
 
-fn parseVector(allocator: Allocator, content: std.io.AnyReader) TestVector {
-    var test_vector: TestVector = .{
+fn parseVector(allocator: Allocator, content: std.io.AnyReader) Vector {
+    var test_vector: Vector = .{
         .expect = undefined,
         .identities = ArrayList(x25519.X25519Identity).init(allocator),
         .payload_hash = undefined,
@@ -113,13 +113,13 @@ fn parseVector(allocator: Allocator, content: std.io.AnyReader) TestVector {
     return test_vector;
 }
 
-fn parseVectorFolder(allocator: Allocator) []TestVector {
+fn parseVectorFolder(allocator: Allocator) []Vector {
     var testkit = std.fs.cwd().openDir("testkit", .{ .iterate = true }) catch {
         @panic("Unable to open `testkit` folder under the current working directory.");
     };
     defer testkit.close();
 
-    var vector_array = ArrayList(TestVector).init(allocator);
+    var vector_array = ArrayList(Vector).init(allocator);
     errdefer vector_array.deinit();
     var iter = testkit.iterate();
     while (iter.next() catch unreachable) |file| {
@@ -133,7 +133,12 @@ fn parseVectorFolder(allocator: Allocator) []TestVector {
     return vector_array.toOwnedSlice() catch unreachable;
 }
 
-fn testSuccess(allocator: Allocator, test_vector: TestVector) !void {
+fn testVector(allocator: Allocator, test_vector: Vector) !void {
+    // temporarily skip all test that expect an error
+    if (test_vector.expect != TestExpect.Success) {
+        return;
+    }
+
     var buffer = std.io.fixedBufferStream(test_vector.file);
     var decrypted = ArrayList(u8).init(allocator);
     defer decrypted.deinit();
@@ -145,23 +150,27 @@ fn testSuccess(allocator: Allocator, test_vector: TestVector) !void {
         any_identities[i] = x25519_identity.any();
     }
 
-    try age.AgeDecryptor.decryptFromReaderToWriter(
+    const decrypt_error = age.AgeDecryptor.decryptFromReaderToWriter(
         allocator,
         any_identities,
         decrypted.writer().any(),
         buffer.reader().any(),
     );
 
-    var hashed: [SHA256.digest_length]u8 = undefined;
-    SHA256.hash(decrypted.items, &hashed, .{});
-    const hexed = std.fmt.bytesToHex(hashed, .lower);
-    const trunc_hexed = hexed[0..test_vector.payload_hash.len];
+    switch (test_vector.expect) {
+        .Success => {
+            try testing.expectEqual(void{}, decrypt_error);
 
-    if (!std.mem.eql(u8, &test_vector.payload_hash, trunc_hexed)) {
-        std.debug.print("\nIncorrect Payload Hash\n", .{});
-        std.debug.print("Expected: {s}\nGot: {s}\n", .{ test_vector.payload_hash, trunc_hexed });
-        std.debug.print("\n\n", .{});
-        return error.WrongPayloadHash;
+            var hashed: [SHA256.digest_length]u8 = undefined;
+            SHA256.hash(decrypted.items, &hashed, .{});
+            const hexed = std.fmt.bytesToHex(hashed, .lower);
+            const trunc_hexed = hexed[0..test_vector.payload_hash.len];
+
+            try testing.expectEqualSlices(u8, &test_vector.payload_hash, trunc_hexed);
+        },
+        else => {
+            // unsupported so skipping
+        },
     }
 }
 
@@ -180,13 +189,6 @@ test "testkit" {
             continue;
         }
 
-        switch (vector.expect) {
-            .Success => {
-                try testSuccess(test_alloctor, vector);
-            },
-            else => {
-                // unsupported so skipping
-            },
-        }
+        try testVector(test_alloctor, vector);
     }
 }
