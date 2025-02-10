@@ -11,6 +11,7 @@ const random = std.crypto.random;
 
 const base64Decoder = std.base64.standard_no_pad.Decoder;
 const base64Encoder = std.base64.standard_no_pad.Encoder;
+const b64Error = std.base64.Error;
 
 const computeHkdfKey = @import("primitives.zig").computeHkdfKey;
 
@@ -34,16 +35,20 @@ const Error = error{
     InvalidX25519SecretKey,
     InvalidCipherTextSize,
     InvalidFileKeySize,
-};
+    InvalidBech32String,
+} || Allocator.Error;
 
 pub const X25519Recipient = struct {
     their_public_key: [X25519.public_length]u8,
 
-    /// Parse X25519 recipient from bech32 encoded string.
+    /// Parse X25519 recipient from bech32 encoded public key.
     ///
     /// The returned memory does not need to be free.
-    pub fn parse(allocator: Allocator, key: []const u8) anyerror!X25519Recipient {
-        const decoded_key = try bech32.decode(allocator, key);
+    pub fn parse(allocator: Allocator, key: []const u8) Error!X25519Recipient {
+        // const decoded_key = try bech32.decode(allocator, key);
+        const decoded_key = bech32.decode(allocator, key) catch {
+            return Error.InvalidBech32String;
+        };
         defer {
             allocator.free(decoded_key.hrp);
             allocator.free(decoded_key.data);
@@ -54,7 +59,7 @@ pub const X25519Recipient = struct {
         }
 
         if (decoded_key.data.len != X25519.public_length) {
-            return Error.InvalidX25519SecretKey;
+            return Error.InvalidCipherTextSize;
         }
         const public_key = decoded_key.data[0..X25519.public_length].*;
 
@@ -69,13 +74,18 @@ pub const X25519Recipient = struct {
         var ephemeral_secret: [X25519.secret_length]u8 = undefined;
         random.bytes(&ephemeral_secret);
 
-        const ephemeral_share = try X25519.recoverPublicKey(ephemeral_secret);
+        const ephemeral_share = X25519.recoverPublicKey(ephemeral_secret) catch {
+            @panic("X25519 Recipient: ephemeral share is zero");
+        };
 
         var salt: [X25519.public_length * 2]u8 = undefined;
         @memcpy(salt[0..ephemeral_share.len], &ephemeral_share);
         @memcpy(salt[ephemeral_share.len..], &self.their_public_key);
 
-        const shared_secret = try X25519.scalarmult(ephemeral_secret, self.their_public_key);
+        const shared_secret = X25519.scalarmult(ephemeral_secret, self.their_public_key) catch {
+            @panic("X25519 Recipient: share secret is zero");
+        };
+
         const nonce = [_]u8{0x00} ** ChaCha20Poly1305.nonce_length;
 
         const overhead_size = file_key_size + ChaCha20Poly1305.tag_length;
@@ -109,8 +119,13 @@ pub const X25519Recipient = struct {
 pub const X25519Identity = struct {
     secret_key: [X25519.secret_length]u8,
     our_public_key: [X25519.public_length]u8,
-    pub fn parse(allocator: Allocator, key: []const u8) anyerror!X25519Identity {
-        const decoded_key = try bech32.decode(allocator, key);
+    /// Parse X25519 identity from bech32 encoded secret key.
+    ///
+    /// The returned memory does not need to be free.
+    pub fn parse(allocator: Allocator, key: []const u8) Error!X25519Identity {
+        const decoded_key = bech32.decode(allocator, key) catch {
+            return Error.InvalidBech32String;
+        };
         defer {
             allocator.free(decoded_key.hrp);
             allocator.free(decoded_key.data);
@@ -124,7 +139,9 @@ pub const X25519Identity = struct {
             return Error.InvalidX25519SecretKey;
         }
         const secret_key = decoded_key.data[0..X25519.secret_length].*;
-        const public_key = try X25519.recoverPublicKey(secret_key);
+        const public_key = X25519.recoverPublicKey(secret_key) catch {
+            @panic("X25519 Identity: public key is zero");
+        };
 
         return X25519Identity{
             .secret_key = secret_key,
@@ -145,22 +162,28 @@ pub const X25519Identity = struct {
             }
 
             const ephemeral_share_encoded = stanza.args[0];
-            const decrypted_len = try base64Decoder.calcSizeForSlice(ephemeral_share_encoded);
+            const decrypted_len = base64Decoder.calcSizeForSlice(ephemeral_share_encoded) catch {
+                return Error.InvalidStanza;
+            };
             if (decrypted_len != X25519.public_length) {
                 return Error.InvalidStanza;
             }
 
             var ephemeral_share: [X25519.public_length]u8 = undefined;
-            try base64Decoder.decode(&ephemeral_share, ephemeral_share_encoded);
+            base64Decoder.decode(&ephemeral_share, ephemeral_share_encoded) catch |err| switch (err) {
+                b64Error.InvalidCharacter, b64Error.InvalidPadding => {
+                    return Error.InvalidStanza;
+                },
+                else => unreachable,
+            };
 
             var salt: [X25519.public_length * 2]u8 = undefined;
             @memcpy(salt[0..ephemeral_share.len], &ephemeral_share);
             @memcpy(salt[ephemeral_share.len..], &self.our_public_key);
 
-            const shared_secret = try X25519.scalarmult(self.secret_key, ephemeral_share);
-            if (std.mem.allEqual(u8, &shared_secret, 0x00)) {
-                return Error.InvalidStanza;
-            }
+            const shared_secret = X25519.scalarmult(self.secret_key, ephemeral_share) catch {
+                @panic("X25519 Identity: share secret is zero");
+            };
 
             const wrap_key = computeHkdfKey(&shared_secret, &salt, x25519_label);
 
