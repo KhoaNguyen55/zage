@@ -136,6 +136,8 @@ fn parseVectorFolder(allocator: Allocator) []TestVector {
 fn testSuccess(allocator: Allocator, test_vector: TestVector) !void {
     var buffer = std.io.fixedBufferStream(test_vector.file);
     var decrypted = ArrayList(u8).init(allocator);
+    defer decrypted.deinit();
+
     var any_identities = try allocator.alloc(age.AnyIdentity, test_vector.identities.items.len);
     defer allocator.free(any_identities);
 
@@ -153,10 +155,11 @@ fn testSuccess(allocator: Allocator, test_vector: TestVector) !void {
     var hashed: [SHA256.digest_length]u8 = undefined;
     SHA256.hash(decrypted.items, &hashed, .{});
     const hexed = std.fmt.bytesToHex(hashed, .lower);
+    const trunc_hexed = hexed[0..test_vector.payload_hash.len];
 
-    if (!std.mem.eql(u8, &test_vector.payload_hash, &hexed)) {
+    if (!std.mem.eql(u8, &test_vector.payload_hash, trunc_hexed)) {
         std.debug.print("\nIncorrect Payload Hash\n", .{});
-        std.debug.print("Expected: {s}\nGot: {s}\n", .{ test_vector.payload_hash, hashed });
+        std.debug.print("Expected: {s}\nGot: {s}\n", .{ test_vector.payload_hash, trunc_hexed });
         std.debug.print("\n\n", .{});
         return error.WrongPayloadHash;
     }
