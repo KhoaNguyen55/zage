@@ -1,17 +1,24 @@
 const std = @import("std");
+const buildZage = @import("build-zage.zig").buildZage;
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const build_cli = b.option(bool, "build-cli", "Build zage, the command line interface for age encryption") orelse false;
 
-    _ = b.addModule("age", .{
-        .root_source_file = b.path("age.zig"),
+    const age_path = b.path("src/age/age.zig");
+    const module = b.addModule("age", .{
+        .root_source_file = age_path,
         .target = target,
         .optimize = optimize,
     });
 
+    if (build_cli) {
+        buildZage(b, target, optimize, module);
+    }
+
     const lib_unit_tests = b.addTest(.{
-        .root_source_file = b.path("age.zig"),
+        .root_source_file = age_path,
         .target = target,
         .optimize = optimize,
     });

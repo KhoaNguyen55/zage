@@ -7,8 +7,8 @@ const SHA256 = std.crypto.hash.sha2.Sha256;
 const testing = std.testing;
 const test_alloctor = testing.allocator;
 
-const age = @import("age/age.zig");
-const x25519 = @import("age/x25519.zig");
+const age = @import("src/age/age.zig");
+const x25519 = @import("src/age/x25519.zig");
 
 const TestExpect = enum {
     Success,
