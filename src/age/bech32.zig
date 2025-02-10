@@ -28,6 +28,9 @@ pub const Error = error{
     MixedCase,
 };
 
+/// return true if string is lower case
+/// false if string is upper case
+/// null if string is mixed case
 fn isStringLower(string: []const u8) ?bool {
     var lower: ?bool = null;
     for (string) |c| {
@@ -63,7 +66,7 @@ fn polymod(values: []const u8) u32 {
 
 /// Expands `hrp` into `dest`
 /// `dest.len` must be equal to `(hrp.len * 2) + 1`
-fn hrpExpand(dest: []u8, hrp: []const u8) anyerror!void {
+fn hrpExpand(dest: []u8, hrp: []const u8) void {
     assert(dest.len == (hrp.len * 2) + 1);
 
     for (hrp, 0..) |c, i| {
@@ -77,10 +80,10 @@ fn hrpExpand(dest: []u8, hrp: []const u8) anyerror!void {
     dest[hrp.len] = 0;
 }
 
-fn createChecksum(allocator: Allocator, hrp: []const u8, data: []const u8) ![]u8 {
+fn createChecksum(allocator: Allocator, hrp: []const u8, data: []const u8) Allocator.Error![6]u8 {
     const expanded_hrp = try allocator.alloc(u8, hrp.len * 2 + 1);
     defer allocator.free(expanded_hrp);
-    try hrpExpand(expanded_hrp, hrp);
+    hrpExpand(expanded_hrp, hrp);
     const padding: []const u8 = &.{ 0, 0, 0, 0, 0, 0 };
     const arrays: []const []const u8 = &.{ expanded_hrp, data, padding };
 
@@ -89,8 +92,7 @@ fn createChecksum(allocator: Allocator, hrp: []const u8, data: []const u8) ![]u8
 
     const mod = polymod(values) ^ 1;
 
-    var ret = try allocator.alloc(u8, 6);
-    errdefer allocator.free(ret);
+    var ret: [6]u8 = undefined;
 
     for (0..ret.len) |p| {
         const shift = 5 * (5 - p);
@@ -100,7 +102,13 @@ fn createChecksum(allocator: Allocator, hrp: []const u8, data: []const u8) ![]u8
     return ret;
 }
 
-fn convertBits(allocator: Allocator, data: []const u8, frombits: u8, tobits: u8, pad: bool) ![]u8 {
+fn convertBits(
+    allocator: Allocator,
+    data: []const u8,
+    frombits: u8,
+    tobits: u8,
+    pad: bool,
+) (Error || Allocator.Error)![]u8 {
     var ret = ArrayList(u8).init(allocator);
     errdefer ret.deinit();
     var acc: u32 = 0;
@@ -133,7 +141,16 @@ fn convertBits(allocator: Allocator, data: []const u8, frombits: u8, tobits: u8,
     return ret.toOwnedSlice();
 }
 
-pub fn encode(allocator: Allocator, hrp: []const u8, data: []const u8) ![]const u8 {
+/// Encode data into Bech32 format
+/// This implementation does not follows the 90 characters limit
+/// See `https://github.com/FiloSottile/age/issues/453`
+///
+/// Caller owns the returned memory.
+pub fn encode(
+    allocator: Allocator,
+    hrp: []const u8,
+    data: []const u8,
+) (Error || Allocator.Error)![]const u8 {
     const values = try convertBits(allocator, data, 8, 5, true);
     defer allocator.free(values);
 
@@ -160,7 +177,6 @@ pub fn encode(allocator: Allocator, hrp: []const u8, data: []const u8) ![]const 
         try ret.append(charset[p]);
     }
     const checksum = try createChecksum(allocator, hrp_lower, values);
-    defer allocator.free(checksum);
     for (checksum) |p| {
         try ret.append(charset[p]);
     }
@@ -176,7 +192,18 @@ pub fn encode(allocator: Allocator, hrp: []const u8, data: []const u8) ![]const 
     return upper_str;
 }
 
-pub fn decode(allocator: Allocator, string: []const u8) !Bech32 {
+/// Decode a bech32 encoded string into `Bech32` struct
+/// `Bech32.hrp` contains the human readable part.
+/// `Bech32.data` contains the decoded data.
+/// This implementation does not follows the 90 characters limit
+/// See `https://github.com/FiloSottile/age/issues/453`
+///
+/// Caller owns the returned memory and must be free with
+/// ```
+/// Allocator.free(Bech32.hrp)
+/// Allocator.free(Bech32.data)
+/// ```
+pub fn decode(allocator: Allocator, string: []const u8) (Error || Allocator.Error)!Bech32 {
     if (isStringLower(string) == null) {
         return Error.MixedCase;
     }
@@ -210,7 +237,7 @@ pub fn decode(allocator: Allocator, string: []const u8) !Bech32 {
     // verify checksum
     const expanded_hrp = try allocator.alloc(u8, hrp.len * 2 + 1);
     defer allocator.free(expanded_hrp);
-    try hrpExpand(expanded_hrp, hrp);
+    hrpExpand(expanded_hrp, hrp);
 
     const arrays: []const []const u8 = &.{ expanded_hrp, data };
 
