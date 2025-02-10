@@ -39,11 +39,10 @@ const Error = error{
 pub const X25519Recipient = struct {
     their_public_key: [X25519.public_length]u8,
 
-    pub fn parse(key: []const u8) anyerror!X25519Recipient {
-        var buffer: [512]u8 = undefined;
-        var fba = std.heap.FixedBufferAllocator.init(&buffer);
-        const allocator = fba.allocator();
-
+    /// Parse X25519 recipient from bech32 encoded string.
+    ///
+    /// The returned memory does not need to be free.
+    pub fn parse(allocator: Allocator, key: []const u8) anyerror!X25519Recipient {
         const decoded_key = try bech32.decode(allocator, key);
         defer {
             allocator.free(decoded_key.hrp);
@@ -110,11 +109,7 @@ pub const X25519Recipient = struct {
 pub const X25519Identity = struct {
     secret_key: [X25519.secret_length]u8,
     our_public_key: [X25519.public_length]u8,
-    pub fn parse(key: []const u8) anyerror!X25519Identity {
-        var buffer: [512]u8 = undefined;
-        var fba = std.heap.FixedBufferAllocator.init(&buffer);
-        const allocator = fba.allocator();
-
+    pub fn parse(allocator: Allocator, key: []const u8) anyerror!X25519Identity {
         const decoded_key = try bech32.decode(allocator, key);
         defer {
             allocator.free(decoded_key.hrp);
@@ -204,12 +199,12 @@ test "encrypt/decrypt file_key" {
     random.bytes(&expected_key);
 
     const public_key = "age17mt2y8v5f3chc5dv22jz4unfcqey37v9jtxlcq834hx5cytjvp6s9txfk0";
-    const recipient = (try X25519Recipient.parse(public_key)).any();
+    const recipient = (try X25519Recipient.parse(test_allocator, public_key)).any();
     const wrapped_key = try recipient.wrap(test_allocator, &expected_key);
     defer wrapped_key.deinit();
 
     const secret_key = "AGE-SECRET-KEY-1QGN768HAM3H3SDL9WRZZYNP9JESEMEQFLFSJYLZE5A52U55WM2GQH8PMPW";
-    const x25519 = try X25519Identity.parse(secret_key);
+    const x25519 = try X25519Identity.parse(test_allocator, secret_key);
     const key = try x25519.any().unwrap(&.{wrapped_key});
 
     try testing.expectEqualSlices(u8, &expected_key, &key.?);
@@ -218,7 +213,7 @@ test "encrypt/decrypt file_key" {
 test "Identity parsing" {
     const expected_sec_key = "AGE-SECRET-KEY-1QGN768HAM3H3SDL9WRZZYNP9JESEMEQFLFSJYLZE5A52U55WM2GQH8PMPW";
     const expected_pub_key = "age17mt2y8v5f3chc5dv22jz4unfcqey37v9jtxlcq834hx5cytjvp6s9txfk0";
-    const x25519 = try X25519Identity.parse(expected_sec_key);
+    const x25519 = try X25519Identity.parse(test_allocator, expected_sec_key);
     const sec_key = try bech32.encode(test_allocator, secret_key_hrp, &x25519.secret_key);
     defer test_allocator.free(sec_key);
     const pub_key = try bech32.encode(test_allocator, public_key_hrp, &x25519.our_public_key);
@@ -233,7 +228,7 @@ test "encrypt/decrypt file" {
 
     const test_str = "Hello World!";
     const public_key = "age17mt2y8v5f3chc5dv22jz4unfcqey37v9jtxlcq834hx5cytjvp6s9txfk0";
-    const recipient = (try X25519Recipient.parse(public_key)).any();
+    const recipient = (try X25519Recipient.parse(test_allocator, public_key)).any();
     var array = ArrayList(u8).init(test_allocator);
     errdefer array.deinit();
     var encryptor = try AgeEncryptor.encryptInit(test_allocator, &.{recipient}, array.writer().any());
@@ -241,7 +236,7 @@ test "encrypt/decrypt file" {
     try encryptor.finish();
 
     const secret_key = "AGE-SECRET-KEY-1QGN768HAM3H3SDL9WRZZYNP9JESEMEQFLFSJYLZE5A52U55WM2GQH8PMPW";
-    const identity = try X25519Identity.parse(secret_key);
+    const identity = try X25519Identity.parse(test_allocator, secret_key);
 
     const owned = try array.toOwnedSlice();
     defer test_allocator.free(owned);
