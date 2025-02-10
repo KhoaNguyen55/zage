@@ -158,7 +158,7 @@ pub const Stanza = struct {
         var start: usize = 0;
         var end: usize = stanza_columns;
         var length: usize = size;
-        while (length > stanza_columns) {
+        while (length >= stanza_columns) {
             try writer.print("{s}\n", .{body_encode[start..end]});
             length -= stanza_columns;
             start += stanza_columns;
@@ -229,6 +229,10 @@ pub const Header = struct {
             try reader.streamUntilDelimiter(input.writer(), '\n', null);
 
             if (parsing_stanzas) {
+                if (in_len + 3 > input.items.len) {
+                    continue;
+                }
+
                 if (std.mem.eql(u8, input.items[in_len .. in_len + 3], stanza_prefix) or
                     std.mem.eql(u8, input.items[in_len .. in_len + 3], mac_prefix))
                 {
@@ -238,7 +242,8 @@ pub const Header = struct {
                     try recipients.append(stanza);
                     start_idx = in_len;
                 }
-            } else if (std.mem.eql(u8, input.items[start_idx .. start_idx + 3], stanza_prefix)) {
+            }
+            if (std.mem.eql(u8, input.items[start_idx .. start_idx + 3], stanza_prefix)) {
                 parsing_stanzas = true;
             }
             if (std.mem.eql(u8, input.items[in_len .. in_len + 3], mac_prefix)) {
