@@ -314,13 +314,12 @@ pub const Header = struct {
     ) Error![mac_length]u8 {
         var args = std.mem.splitScalar(u8, input, ' ');
 
-        assert(std.mem.eql(u8, args.first(), mac_prefix));
+        assert(std.mem.eql(u8, args.first()[0..3], mac_prefix));
 
         if (args.next()) |mac_line| {
-            if (args.next() != null) {
+            if (args.next() != null or mac_line.len != decoded_mac_length) {
                 return Error.MalformedHeader;
             }
-            assert(mac_line.len == decoded_mac_length);
 
             var mac: [mac_length]u8 = undefined;
             base64Decoder.decode(&mac, mac_line) catch |err| switch (err) {
