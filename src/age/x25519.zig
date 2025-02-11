@@ -36,6 +36,7 @@ const Error = error{
     InvalidCipherTextSize,
     InvalidFileKeySize,
     InvalidBech32String,
+    ShareSecretIsZero,
 } || Allocator.Error;
 
 pub const X25519Recipient = struct {
@@ -75,7 +76,7 @@ pub const X25519Recipient = struct {
         random.bytes(&ephemeral_secret);
 
         const ephemeral_share = X25519.recoverPublicKey(ephemeral_secret) catch {
-            @panic("X25519 Recipient: ephemeral share is zero");
+            return Error.ShareSecretIsZero;
         };
 
         var salt: [X25519.public_length * 2]u8 = undefined;
@@ -83,7 +84,7 @@ pub const X25519Recipient = struct {
         @memcpy(salt[ephemeral_share.len..], &self.their_public_key);
 
         const shared_secret = X25519.scalarmult(ephemeral_secret, self.their_public_key) catch {
-            @panic("X25519 Recipient: share secret is zero");
+            return Error.ShareSecretIsZero;
         };
 
         const nonce = [_]u8{0x00} ** ChaCha20Poly1305.nonce_length;
@@ -140,7 +141,7 @@ pub const X25519Identity = struct {
         }
         const secret_key = decoded_key.data[0..X25519.secret_length].*;
         const public_key = X25519.recoverPublicKey(secret_key) catch {
-            @panic("X25519 Identity: public key is zero");
+            return Error.ShareSecretIsZero;
         };
 
         return X25519Identity{
@@ -182,7 +183,7 @@ pub const X25519Identity = struct {
             @memcpy(salt[ephemeral_share.len..], &self.our_public_key);
 
             const shared_secret = X25519.scalarmult(self.secret_key, ephemeral_share) catch {
-                @panic("X25519 Identity: share secret is zero");
+                return Error.ShareSecretIsZero;
             };
 
             const wrap_key = computeHkdfKey(&shared_secret, &salt, x25519_label);
