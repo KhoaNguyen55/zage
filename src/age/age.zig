@@ -208,7 +208,7 @@ pub const AgeDecryptor = struct {
 
         var key_nonce: [payload_key_nonce_length]u8 = undefined;
         if (try source.read(&key_nonce) < payload_key_nonce_length) {
-            unreachable;
+            return Error.EmptyLastChunk;
         }
 
         const payload_key = computeHkdfKey(&file_key, &key_nonce, payload_label);
