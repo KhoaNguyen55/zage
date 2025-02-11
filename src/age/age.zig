@@ -25,13 +25,18 @@ const last_chunk_flag = 0x01;
 const payload_nonce_length = 12;
 const chunk_size = 64 * 1024;
 
-const Error = error{
+pub const HeaderError = error{
     NoValidIdentities,
     MacsNotEqual,
+};
+
+pub const PayloadError = error{
     EmptyLastChunk,
     DataAfterEnd,
     DataIsTruncated,
 };
+
+const Error = HeaderError || PayloadError || Allocator.Error;
 
 fn setLastChunkFlag(nonce: *[ChaCha20Poly1305.nonce_length]u8) void {
     nonce.*[nonce.len - 1] = last_chunk_flag;
