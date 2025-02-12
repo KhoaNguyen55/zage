@@ -88,7 +88,7 @@ fn parseVector(allocator: Allocator, content: std.io.AnyReader, file_name: []con
             } else if (std.mem.eql(u8, header_key, "payload")) {
                 test_vector.payload_hash = header_value[0..32].*;
             } else if (std.mem.eql(u8, header_key, "identity")) {
-                const identity = x25519.X25519Identity.parse(header_value) catch {
+                const identity = x25519.X25519Identity.parse(allocator, header_value) catch {
                     @panic("Can't parse identity, is test file correct? or spec version matched?");
                 };
                 test_vector.identities.append(identity) catch {
@@ -138,12 +138,32 @@ fn parseVectorFolder(allocator: Allocator) []Vector {
     return vector_array.toOwnedSlice() catch unreachable;
 }
 
-fn testVector(allocator: Allocator, test_vector: Vector) !void {
-    // temporarily skip all test that expect an error
-    if (test_vector.expect != TestExpect.Success) {
-        return;
-    }
+fn expectErrorSet(ErrorSet: type, result: anytype, set_name: []const u8) !void {
+    if (result) |_| {
+        std.debug.print("\nNot an error\n", .{});
+        return error.NotAnError;
+    } else |err| {
+        if (@typeInfo(ErrorSet).ErrorSet) |set| for (set) |err_info| {
+            if (std.mem.eql(u8, @errorName(err), err_info.name)) {
+                return;
+            }
+        };
 
+        std.debug.print("\nError: '{s}' not in set '{s}'\n", .{ @errorName(err), set_name });
+        return error.NotInErrorSet;
+    }
+}
+
+fn checkHash(values: []const u8, hash: []const u8) !void {
+    var hashed: [SHA256.digest_length]u8 = undefined;
+    SHA256.hash(values, &hashed, .{});
+    const hexed = std.fmt.bytesToHex(hashed, .lower);
+    const trunc_hexed = hexed[0..hash.len];
+
+    try testing.expectEqualSlices(u8, hash, trunc_hexed);
+}
+
+fn testVector(allocator: Allocator, test_vector: Vector) !void {
     var buffer = std.io.fixedBufferStream(test_vector.file);
     var decrypted = ArrayList(u8).init(allocator);
     defer decrypted.deinit();
@@ -165,17 +185,22 @@ fn testVector(allocator: Allocator, test_vector: Vector) !void {
     switch (test_vector.expect) {
         .Success => {
             try testing.expectEqual(void{}, decrypt_error);
-
-            var hashed: [SHA256.digest_length]u8 = undefined;
-            SHA256.hash(decrypted.items, &hashed, .{});
-            const hexed = std.fmt.bytesToHex(hashed, .lower);
-            const trunc_hexed = hexed[0..test_vector.payload_hash.len];
-
-            try testing.expectEqualSlices(u8, &test_vector.payload_hash, trunc_hexed);
+            try checkHash(decrypted.items, &test_vector.payload_hash);
         },
-        else => {
-            // unsupported so skipping
+        .NoMatch => {
+            try testing.expectError(age.HeaderError.NoValidIdentities, decrypt_error);
         },
+        .HmacFailure => {
+            try testing.expectError(age.HeaderError.MacsNotEqual, decrypt_error);
+        },
+        .HeaderFailure => {
+            try expectErrorSet(age.HeaderError, decrypt_error, "HeaderError");
+        },
+        .PayloadFailure => {
+            try expectErrorSet(age.PayloadError, decrypt_error, "PayloadError");
+            try checkHash(decrypted.items, &test_vector.payload_hash);
+        },
+        else => unreachable,
     }
 }
 
@@ -188,15 +213,20 @@ test "testkit" {
         test_alloctor.free(vectors);
     }
 
+    var failed = false;
+
     for (vectors) |vector| {
-        if (vector.armored or vector.compressed or vector.passphrase) {
+        if (vector.armored or vector.compressed or vector.passphrase or vector.expect == .ArmorFailure) {
             // unsupported
             continue;
         }
 
         testVector(test_alloctor, vector) catch {
+            failed = true;
             std.debug.print("Failed test: {s}\n\n", .{vector.test_file_name});
             std.debug.print("++++++++++++++++++++++++++++++++++++++++\n", .{});
         };
     }
+
+    if (failed) return error.FailedTestKit;
 }
