@@ -230,7 +230,12 @@ pub const Header = struct {
         start_idx = input.items.len;
 
         var recipients = ArrayList(Stanza).init(allocator);
-        errdefer recipients.deinit();
+        errdefer {
+            for (recipients.items) |stanza| {
+                stanza.deinit();
+            }
+            recipients.deinit();
+        }
 
         var parsing_stanzas = false;
 
@@ -250,7 +255,6 @@ pub const Header = struct {
                 {
                     parsing_stanzas = false;
                     const stanza = try Stanza.parse(allocator, input.items[start_idx..in_len]);
-                    errdefer stanza.deinit();
                     try recipients.append(stanza);
                     start_idx = in_len;
                 }
