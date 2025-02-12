@@ -26,14 +26,17 @@ const payload_nonce_length = 12;
 const chunk_size = 64 * 1024;
 
 pub const HeaderError = error{
+    MalformedHeader,
     NoValidIdentities,
     MacsNotEqual,
+    EmptyLastChunk,
+    UnsupportedVersion,
 };
 
 pub const PayloadError = error{
-    EmptyLastChunk,
     DataAfterEnd,
     DataIsTruncated,
+    DecryptFailure,
 };
 
 const Error = HeaderError || PayloadError || Allocator.Error;
@@ -82,7 +85,9 @@ pub const AgeEncryptor = struct {
         }
 
         for (recipients, 0..) |recipient, i| {
-            const stanza = try recipient.wrap(allocator, &file_key);
+            const stanza = recipient.wrap(allocator, &file_key) catch {
+                return Error.MalformedHeader;
+            };
             stanzas[i] = stanza;
         }
 
@@ -189,7 +194,9 @@ pub const AgeDecryptor = struct {
         defer header.deinit();
 
         const file_key: [file_key_size]u8 = for (identities) |identity| {
-            const key = try identity.unwrap(header.recipients);
+            const key = identity.unwrap(header.recipients) catch {
+                return Error.MalformedHeader;
+            };
             if (key) |k| break k;
         } else {
             return Error.NoValidIdentities;
@@ -256,14 +263,14 @@ pub const AgeDecryptor = struct {
                 last = true;
                 setLastChunkFlag(&payload_nonce);
 
-                try ChaCha20Poly1305.decrypt(
+                ChaCha20Poly1305.decrypt(
                     decrypt_buffer[0..chunk_end],
                     encrypt_buffer[0..chunk_end],
                     tag,
                     "",
                     payload_nonce,
                     payload_key,
-                );
+                ) catch return PayloadError.DecryptFailure;
             };
 
             try dest.writeAll(decrypt_buffer[0..chunk_end]);
