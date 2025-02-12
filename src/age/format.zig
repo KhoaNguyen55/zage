@@ -71,6 +71,18 @@ pub const Stanza = struct {
         var lines = std.mem.splitScalar(u8, input, '\n');
         const args = try splitArgs(alloc, lines.first());
 
+        for (args) |arg| {
+            if (arg.len == 0) {
+                return Error.MalformedHeader;
+            }
+
+            for (arg) |c| {
+                if (c < 33 or c > 126) {
+                    return Error.MalformedHeader;
+                }
+            }
+        }
+
         assert(std.mem.eql(u8, args[0], stanza_prefix[0..2]));
         var body = ArrayList(u8).init(alloc);
         var final_len: usize = stanza_columns;
@@ -88,6 +100,7 @@ pub const Stanza = struct {
 
         const body_slice = try body.toOwnedSlice();
         defer alloc.free(body_slice);
+
         const size = base64Decoder.calcSizeForSlice(body_slice) catch return Error.MalformedHeader;
         const decoded_body = try alloc.alloc(u8, size);
         base64Decoder.decode(decoded_body, body_slice) catch |err| switch (err) {
