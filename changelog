@@ -9,10 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Code to test against [age test vectors](https://github.com/C2SP/CCTV/tree/main/age)
+- A whole bunch of error handlings
 
 ### Fixed
 - Multiple stanza parsing exit early
 - Unable to parse stanza with empty final line
+- Memory leak when parsing broken header 
+- Stanza parsing now check for invalid string 
+
+### Changed
+- Directory structure are now unified with one build.zig.zon file
+- X25519 recipient and identity take in an allocator instead of making its own
+fixedBufferAllocator.
 
 ## [0.1.0] - 2025-02-06
 
