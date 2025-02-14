@@ -34,8 +34,81 @@ const Error = error{
     WorkFactorTooBig,
 } || Allocator.Error;
 
-// pub const ScryptRecipient = struct {
-// };
+pub const ScryptRecipient = struct {
+    allocator: Allocator,
+    passphrase: []const u8,
+    work_factor: u6,
+
+    /// Create `ScryptRecipient` from passhprase.
+    ///
+    /// Caller owns the returned memory, must be free with `AnyRecipient.destroy()`.
+    pub fn create(allocator: Allocator, passphrase: []const u8, work_factor: ?u6) Allocator.Error!ScryptRecipient {
+        const duped_passphrase = try allocator.dupe(u8, passphrase);
+        return ScryptRecipient{
+            .allocator = allocator,
+            .passphrase = duped_passphrase,
+            .work_factor = work_factor orelse 18,
+        };
+    }
+
+    fn wrap(context: *const anyopaque, _: Allocator, file_key: []const u8) anyerror!Stanza {
+        const self: *const ScryptRecipient = @ptrCast(@alignCast(context));
+
+        var scrypt_salt: [salt_length]u8 = undefined;
+        random.bytes(&scrypt_salt);
+
+        const size = base64Encoder.calcSize(scrypt_salt.len);
+        const scrypt_salt_encoded = try self.allocator.alloc(u8, size);
+        defer self.allocator.free(scrypt_salt_encoded);
+        _ = base64Encoder.encode(scrypt_salt_encoded, &scrypt_salt);
+
+        var salt: [scrypt_label.len + salt_length]u8 = undefined;
+        @memcpy(salt[0..scrypt_label.len], scrypt_label);
+        @memcpy(salt[scrypt_label.len..], &scrypt_salt);
+
+        var wrap_key: [ChaCha20Poly1305.key_length]u8 = undefined;
+        try scrypt.kdf(
+            self.allocator,
+            &wrap_key,
+            self.passphrase,
+            &salt,
+            .{ .ln = self.work_factor, .p = 1, .r = 8 },
+        );
+
+        const overhead_size = file_key_size + ChaCha20Poly1305.tag_length;
+
+        const nonce = [_]u8{0x00} ** ChaCha20Poly1305.nonce_length;
+
+        var body: [overhead_size]u8 = undefined;
+        ChaCha20Poly1305.encrypt(
+            body[0..file_key_size],
+            body[file_key_size..],
+            file_key,
+            "",
+            nonce,
+            wrap_key,
+        );
+
+        var work_factor_str: [2]u8 = undefined;
+        _ = try std.fmt.bufPrint(&work_factor_str, "{}", .{self.work_factor});
+
+        return Stanza.create(
+            self.allocator,
+            identity_type,
+            &.{ scrypt_salt_encoded, &work_factor_str },
+            &body,
+        );
+    }
+
+    fn destroy(context: *const anyopaque) void {
+        const self: *const ScryptRecipient = @ptrCast(@alignCast(context));
+        self.allocator.free(self.passphrase);
+    }
+
+    pub fn any(self: *const ScryptRecipient) AnyRecipient {
+        return AnyRecipient{ .context = self, .wrapFn = wrap, .destroyFn = destroy };
+    }
+};
 
 pub const ScryptIdentity = struct {
     allocator: Allocator,
@@ -145,3 +218,58 @@ pub const ScryptIdentity = struct {
         return AnyIdentity{ .context = self, .unwrapFn = unwrap, .destroyFn = destroy };
     }
 };
+
+test "encrypt/decrypt file_key" {
+    var expected_key: [file_key_size]u8 = undefined;
+    random.bytes(&expected_key);
+    const password = "hunter3";
+
+    const recipient = try ScryptRecipient.create(test_allocator, password, null);
+    defer recipient.any().destroy();
+
+    const wrapped_key = try recipient.any().wrap(test_allocator, &expected_key);
+    defer wrapped_key.destroy();
+
+    const identity = try ScryptIdentity.create(test_allocator, password);
+    defer identity.any().destroy();
+
+    const key = try identity.any().unwrap(&.{wrapped_key});
+    try testing.expectEqualSlices(u8, &expected_key, &key.?);
+}
+
+test "encrypt/decrypt file" {
+    const AgeEncryptor = @import("age.zig").AgeEncryptor;
+    const AgeDecryptor = @import("age.zig").AgeDecryptor;
+
+    const password = "prey2";
+    const test_str = "Hello World!";
+
+    const recipient = try ScryptRecipient.create(test_allocator, password, null);
+    defer recipient.any().destroy();
+
+    var array = ArrayList(u8).init(test_allocator);
+    errdefer array.deinit();
+    var encryptor = try AgeEncryptor.encryptInit(test_allocator, &.{recipient.any()}, array.writer().any());
+    try encryptor.update(test_str[0..]);
+    try encryptor.finish();
+
+    const identity = try ScryptIdentity.create(test_allocator, password);
+    defer identity.any().destroy();
+
+    const owned = try array.toOwnedSlice();
+    defer test_allocator.free(owned);
+    var encrypt_file = std.io.fixedBufferStream(owned);
+
+    var decryptarray = ArrayList(u8).init(test_allocator);
+    errdefer decryptarray.deinit();
+    try AgeDecryptor.decryptFromReaderToWriter(
+        test_allocator,
+        &.{identity.any()},
+        decryptarray.writer().any(),
+        encrypt_file.reader().any(),
+    );
+
+    const got = try decryptarray.toOwnedSlice();
+    defer test_allocator.free(got);
+    try testing.expectEqualStrings(test_str, got);
+}
