@@ -21,7 +21,7 @@ The library is for `zig v0.13.0` for now.
 To install as a zig library you can run the `zig fetch` command:
 
 ```
-zig fetch --save https://github.com/KhoaNguyen55/zage/releases/tag/v0.2.0-age
+zig fetch --save https://github.com/KhoaNguyen55/zage/archive/refs/tags/<tag>.tar.gz
 ```
 
 Then add the following to `build.zig`:
