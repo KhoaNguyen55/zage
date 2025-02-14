@@ -9,6 +9,7 @@ const test_alloctor = testing.allocator;
 
 const age = @import("src/age/age.zig");
 const x25519 = @import("src/age/x25519.zig");
+const scrypt = @import("src/age/scrypt.zig");
 
 const TestExpect = enum {
     Success,
@@ -23,24 +24,31 @@ const Vector = struct {
     allocator: Allocator,
     expect: TestExpect,
     /// X25519 identities
-    identities: ArrayList(x25519.X25519Identity),
+    identities: ?ArrayList(x25519.X25519Identity),
+    /// Passphrase for scrypt recipient stanzas,
+    passphrase: ?ArrayList(scrypt.ScryptIdentity),
     /// hex-encoded SHA-256 of the decrypted payload
     payload_hash: [32]u8,
     /// content of the age file
     file: []const u8,
     /// path of the test file
     test_file_name: []const u8,
-    /// not implemented
-    /// Passphrase for scrypt recipient stanzas,
-    passphrase: bool,
     /// Ascii armor
     armored: bool,
     /// gzip compression
     compressed: bool,
 
     pub fn destroy(self: Vector) void {
-        self.identities.deinit();
-        //TODO: same for passphrase when it get implemented
+        if (self.identities) |identities| {
+            identities.deinit();
+        }
+        if (self.passphrase) |passphrase| {
+            for (passphrase.items) |p| {
+                p.any().destroy();
+            }
+            passphrase.deinit();
+        }
+
         self.allocator.free(self.file);
         self.allocator.free(self.test_file_name);
     }
@@ -66,12 +74,12 @@ fn parseVector(allocator: Allocator, content: std.io.AnyReader, file_name: []con
     var test_vector: Vector = .{
         .expect = undefined,
         .test_file_name = undefined,
-        .identities = ArrayList(x25519.X25519Identity).init(allocator),
+        .identities = null,
+        .passphrase = null,
         .payload_hash = undefined,
         .file = undefined,
         .armored = false,
         .compressed = false,
-        .passphrase = false,
         .allocator = undefined,
     };
     test_vector.test_file_name = allocator.dupe(u8, file_name) catch @panic("Out of memory");
@@ -88,14 +96,27 @@ fn parseVector(allocator: Allocator, content: std.io.AnyReader, file_name: []con
             } else if (std.mem.eql(u8, header_key, "payload")) {
                 test_vector.payload_hash = header_value[0..32].*;
             } else if (std.mem.eql(u8, header_key, "identity")) {
+                if (test_vector.identities) |_| {} else {
+                    test_vector.identities = ArrayList(x25519.X25519Identity).init(allocator);
+                }
+
                 const identity = x25519.X25519Identity.parse(allocator, header_value) catch {
                     @panic("Can't parse identity, is test file correct? or spec version matched?");
                 };
-                test_vector.identities.append(identity) catch {
+                test_vector.identities.?.append(identity) catch {
                     @panic("Out of memory");
                 };
             } else if (std.mem.eql(u8, header_key, "passphrase")) {
-                test_vector.passphrase = true;
+                if (test_vector.passphrase) |_| {} else {
+                    test_vector.passphrase = ArrayList(scrypt.ScryptIdentity).init(allocator);
+                }
+
+                const identity = scrypt.ScryptIdentity.create(allocator, header_value) catch {
+                    @panic("Out of memory");
+                };
+                test_vector.passphrase.?.append(identity) catch {
+                    @panic("Out of memory");
+                };
             } else if (std.mem.eql(u8, header_key, "armored")) {
                 test_vector.armored = true;
             } else if (std.mem.eql(u8, header_key, "compressed")) {
@@ -140,7 +161,7 @@ fn parseVectorFolder(allocator: Allocator) []Vector {
 
 fn expectErrorSet(ErrorSet: type, result: anytype, set_name: []const u8) !void {
     if (result) |_| {
-        std.debug.print("\nNot an error\n", .{});
+        std.debug.print("\nExpects: '{s}', got no errors\n", .{set_name});
         return error.NotAnError;
     } else |err| {
         if (@typeInfo(ErrorSet).ErrorSet) |set| for (set) |err_info| {
@@ -168,11 +189,22 @@ fn testVector(allocator: Allocator, test_vector: Vector) !void {
     var decrypted = ArrayList(u8).init(allocator);
     defer decrypted.deinit();
 
-    var any_identities = try allocator.alloc(age.AnyIdentity, test_vector.identities.items.len);
+    var any_identities = try allocator.alloc(age.AnyIdentity, 0);
     defer allocator.free(any_identities);
 
-    for (test_vector.identities.items, 0..) |x25519_identity, i| {
-        any_identities[i] = x25519_identity.any();
+    if (test_vector.identities) |identities| {
+        any_identities = try allocator.realloc(any_identities, identities.items.len);
+        for (identities.items, 0..) |x25519_identity, i| {
+            any_identities[i] = x25519_identity.any();
+        }
+    }
+
+    if (test_vector.passphrase) |pass| {
+        const first_len = any_identities.len;
+        any_identities = try allocator.realloc(any_identities, first_len + pass.items.len);
+        for (pass.items, first_len..) |scrypt_identity, i| {
+            any_identities[i] = scrypt_identity.any();
+        }
     }
 
     const decrypt_error = age.AgeDecryptor.decryptFromReaderToWriter(
@@ -216,7 +248,7 @@ test "testkit" {
     var failed = false;
 
     for (vectors) |vector| {
-        if (vector.armored or vector.compressed or vector.passphrase or vector.expect == .ArmorFailure) {
+        if (vector.armored or vector.compressed) {
             // unsupported
             continue;
         }
