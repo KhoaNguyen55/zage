@@ -113,7 +113,7 @@ pub const X25519Recipient = struct {
     }
 
     pub fn any(self: *const X25519Recipient) AnyRecipient {
-        return AnyRecipient{ .context = self, .wrapFn = wrap };
+        return AnyRecipient{ .context = self, .wrapFn = wrap, .destroyFn = null };
     }
 };
 
@@ -214,7 +214,7 @@ pub const X25519Identity = struct {
     }
 
     pub fn any(self: *const X25519Identity) AnyIdentity {
-        return AnyIdentity{ .context = self, .unwrapFn = unwrap };
+        return AnyIdentity{ .context = self, .unwrapFn = unwrap, .destroyFn = null };
     }
 };
 

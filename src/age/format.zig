@@ -390,17 +390,33 @@ test "Parse header" {
 pub const AnyRecipient = struct {
     context: *const anyopaque,
     wrapFn: *const fn (context: *const anyopaque, allocator: Allocator, file_key: []const u8) anyerror!Stanza,
+    destroyFn: ?*const fn (context: *const anyopaque) void,
 
     pub fn wrap(self: AnyRecipient, allocator: Allocator, file_key: []const u8) anyerror!Stanza {
         return self.wrapFn(self.context, allocator, file_key);
+    }
+
+    /// Must be call after `AnyRecipient` is used for encryption, or decryption.
+    pub fn destroy(self: AnyRecipient) void {
+        if (self.destroyFn) |destroyFn| {
+            return destroyFn(self.context);
+        }
     }
 };
 
 pub const AnyIdentity = struct {
     context: *const anyopaque,
     unwrapFn: *const fn (context: *const anyopaque, stanzas: []const Stanza) anyerror!?[file_key_size]u8,
+    destroyFn: ?*const fn (context: *const anyopaque) void,
 
     pub fn unwrap(self: AnyIdentity, stanzas: []const Stanza) anyerror!?[file_key_size]u8 {
         return self.unwrapFn(self.context, stanzas);
+    }
+
+    /// Must be call after `AnyIdentity` is used for encryption, or decryption.
+    pub fn destroy(self: AnyIdentity) void {
+        if (self.destroyFn) |destroyFn| {
+            return destroyFn(self.context);
+        }
     }
 };
