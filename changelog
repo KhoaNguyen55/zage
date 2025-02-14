@@ -14,18 +14,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 cases where a specific implementation need to allocate and free internal
 memories (scrypt)
 - Scrypt Identity for decrypting passphrase protected files.
+- Scrypt Recipient for encrypting passphrase protected files.
 
 ### Fixed
 - Multiple stanza parsing exit early
 - Unable to parse stanza with empty final line
 - Memory leak when parsing broken header 
 - Stanza parsing now check for invalid string 
+- Failed to encrypt/decrypt data bigger than chunk size
 
 ### Changed
 - Directory structure are now unified with one build.zig.zon file
 - X25519 recipient and identity take in an allocator instead of making its own
 fixedBufferAllocator
 - Rename deinit functions to destroy
+- Stanza create function take in array of string instead of array of bytes
 
 ## [0.1.0] - 2025-02-06
 
