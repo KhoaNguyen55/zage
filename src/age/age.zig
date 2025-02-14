@@ -79,7 +79,7 @@ pub const AgeEncryptor = struct {
         var stanzas = try allocator.alloc(Stanza, recipients.len);
         defer {
             for (stanzas) |stanza| {
-                stanza.deinit();
+                stanza.destroy();
             }
             allocator.free(stanzas);
         }
@@ -191,7 +191,7 @@ pub const AgeDecryptor = struct {
         source: std.io.AnyReader,
     ) anyerror!void {
         const header = try Header.parse(allocator, source);
-        defer header.deinit();
+        defer header.destroy();
 
         const file_key: [file_key_size]u8 = for (identities) |identity| {
             const key = identity.unwrap(header.recipients) catch {

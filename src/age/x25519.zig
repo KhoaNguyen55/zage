@@ -225,7 +225,7 @@ test "encrypt/decrypt file_key" {
     const public_key = "age17mt2y8v5f3chc5dv22jz4unfcqey37v9jtxlcq834hx5cytjvp6s9txfk0";
     const recipient = (try X25519Recipient.parse(test_allocator, public_key)).any();
     const wrapped_key = try recipient.wrap(test_allocator, &expected_key);
-    defer wrapped_key.deinit();
+    defer wrapped_key.destroy();
 
     const secret_key = "AGE-SECRET-KEY-1QGN768HAM3H3SDL9WRZZYNP9JESEMEQFLFSJYLZE5A52U55WM2GQH8PMPW";
     const x25519 = try X25519Identity.parse(test_allocator, secret_key);

@@ -58,7 +58,7 @@ pub const Stanza = struct {
     arena: ArenaAllocator,
     /// Parse a stanza string.
     ///
-    /// Caller owns the returned memory, must be free with `Stanza.deinit()`.
+    /// Caller owns the returned memory, must be free with `Stanza.destroy()`.
     pub fn parse(
         allocator: Allocator,
         /// input string must start with '-> ', end with a line fewer than 64 characters with no newline.
@@ -122,7 +122,7 @@ pub const Stanza = struct {
     ///
     /// `args` and `body` memory are copied and managed internally
     ///
-    /// Caller owns the returned memory, must be free with `Stanza.deinit()`.
+    /// Caller owns the returned memory, must be free with `Stanza.destroy()`.
     pub fn create(
         allocator: Allocator,
         /// String repesenting the type of the stanza
@@ -185,7 +185,7 @@ pub const Stanza = struct {
         try writer.print("{s}", .{body_encode[start..]});
     }
 
-    pub fn deinit(self: Stanza) void {
+    pub fn destroy(self: Stanza) void {
         self.arena.deinit();
     }
 };
@@ -196,7 +196,7 @@ test "Stanza parsing" {
         \\p0OFXKOnut5HGzfUsfu26JLBPzOJAokn41L5kLvkNtI
     ;
     const stanza = try Stanza.parse(test_allocator, test_string);
-    defer stanza.deinit();
+    defer stanza.destroy();
     var args = [_][]const u8{"A76ighm6OB6DbLMzD8SA1Ozg7lAbyG6qNNaNoEC+m1w"};
 
     const body = "p0OFXKOnut5HGzfUsfu26JLBPzOJAokn41L5kLvkNtI";
@@ -225,7 +225,7 @@ pub const Header = struct {
     ///
     /// After the function returned, `reader` position will be at the start of the payload.
     ///
-    /// Caller owns the memory of the returned `Header`, must be free with `Header.deinit()`.
+    /// Caller owns the memory of the returned `Header`, must be free with `Header.destroy()`.
     pub fn parse(
         allocator: Allocator,
         reader: std.io.AnyReader,
@@ -245,7 +245,7 @@ pub const Header = struct {
         var recipients = ArrayList(Stanza).init(allocator);
         errdefer {
             for (recipients.items) |stanza| {
-                stanza.deinit();
+                stanza.destroy();
             }
             recipients.deinit();
         }
@@ -365,9 +365,9 @@ pub const Header = struct {
         }
     }
 
-    pub fn deinit(self: Header) void {
+    pub fn destroy(self: Header) void {
         for (self.recipients) |value| {
-            value.deinit();
+            value.destroy();
         }
         test_allocator.free(self.recipients);
     }
@@ -383,7 +383,7 @@ test "Parse header" {
     ;
     var buffer = std.io.fixedBufferStream(test_string);
     var parse_success = try Header.parse(test_allocator, buffer.reader().any());
-    defer parse_success.deinit();
+    defer parse_success.destroy();
     // TODO: write the expected output in bytes
 }
 

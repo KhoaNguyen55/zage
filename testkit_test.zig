@@ -38,7 +38,7 @@ const Vector = struct {
     /// gzip compression
     compressed: bool,
 
-    pub fn deinit(self: Vector) void {
+    pub fn destroy(self: Vector) void {
         self.identities.deinit();
         //TODO: same for passphrase when it get implemented
         self.allocator.free(self.file);
@@ -208,7 +208,7 @@ test "testkit" {
     const vectors = parseVectorFolder(test_alloctor);
     defer {
         for (vectors) |vector| {
-            vector.deinit();
+            vector.destroy();
         }
         test_alloctor.free(vectors);
     }
