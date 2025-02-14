@@ -39,14 +39,14 @@ const Error = error{
 
 pub const ScryptIdentity = struct {
     allocator: Allocator,
-    passpharse: []const u8,
+    passphrase: []const u8,
 
     /// Create a `ScryptIdentity` from passphrase.
     ///
     /// Caller owns the returned memory, must be free with `AnyIdentity.destroy()`.
     pub fn create(allocator: Allocator, passphrase: []const u8) Allocator.Error!ScryptIdentity {
         const duped_passphrase = try allocator.dupe(u8, passphrase);
-        return ScryptIdentity{ .allocator = allocator, .passpharse = duped_passphrase };
+        return ScryptIdentity{ .allocator = allocator, .passphrase = duped_passphrase };
     }
 
     fn unwrap(context: *const anyopaque, stanzas: []const Stanza) anyerror!?[file_key_size]u8 {
@@ -104,7 +104,7 @@ pub const ScryptIdentity = struct {
             scrypt.kdf(
                 self.allocator,
                 &wrap_key,
-                self.passpharse,
+                self.passphrase,
                 &salt,
                 .{ .ln = work_factor, .p = 1, .r = 8 },
             ) catch {
@@ -138,7 +138,7 @@ pub const ScryptIdentity = struct {
 
     fn destroy(context: *const anyopaque) void {
         const self: *const ScryptIdentity = @ptrCast(@alignCast(context));
-        self.allocator.free(self.passpharse);
+        self.allocator.free(self.passphrase);
     }
 
     pub fn any(self: *const ScryptIdentity) AnyIdentity {
