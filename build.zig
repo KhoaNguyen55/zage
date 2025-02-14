@@ -1,5 +1,4 @@
 const std = @import("std");
-const buildZage = @import("build-zage.zig").buildZage;
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -14,6 +13,7 @@ pub fn build(b: *std.Build) void {
     });
 
     if (build_cli) {
+        const buildZage = @import("build-zage.zig").buildZage;
         buildZage(b, target, optimize, module);
     }
 
