@@ -130,7 +130,7 @@ pub const AgeEncryptor = struct {
     ) anyerror!void {
         var written: usize = 0;
         while (written < source.len) {
-            const written_size = @min(source.len - written, chunk_size);
+            const written_size = @min(chunk_size - self.buffer_pos, source.len - written);
             const new_size = self.buffer_pos + written_size;
 
             @memcpy(self.buffer[self.buffer_pos..new_size], source[written .. written + written_size]);
@@ -221,7 +221,7 @@ pub const AgeDecryptor = struct {
         const payload_key = computeHkdfKey(&file_key, &key_nonce, payload_label);
 
         var payload_nonce = [_]u8{0} ** payload_nonce_length;
-        var encrypt_buffer: [chunk_size]u8 = undefined;
+        var encrypt_buffer: [chunk_size + ChaCha20Poly1305.tag_length]u8 = undefined;
         var decrypt_buffer: [chunk_size]u8 = undefined;
         var tag: [ChaCha20Poly1305.tag_length]u8 = undefined;
         var last = false;
