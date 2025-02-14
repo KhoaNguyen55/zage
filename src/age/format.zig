@@ -127,7 +127,7 @@ pub const Stanza = struct {
         allocator: Allocator,
         /// String repesenting the type of the stanza
         stanza_type: []const u8,
-        /// Slice of a slice of bytes representing arguments of the stanza
+        /// Slices of string representing arguments of the stanza
         args: []const []const u8,
         /// Slice of bytes representing the encrypted file key
         body: []const u8,
@@ -136,20 +136,17 @@ pub const Stanza = struct {
         errdefer arena_alloc.deinit();
         const alloc = arena_alloc.allocator();
 
-        var args_encoded = try alloc.alloc([]const u8, args.len);
+        var args_duped = try alloc.alloc([]const u8, args.len);
 
         for (args, 0..) |arg, i| {
-            const size = base64Encoder.calcSize(arg.len);
-            const encoded = try alloc.alloc(u8, size);
-            _ = base64Encoder.encode(encoded, arg);
-            args_encoded[i] = encoded;
+            args_duped[i] = try alloc.dupe(u8, arg);
         }
 
         const body_copy = try alloc.dupe(u8, body);
 
         return Stanza{
             .type = stanza_type,
-            .args = args_encoded,
+            .args = args_duped,
             .body = body_copy,
             .arena = arena_alloc,
         };

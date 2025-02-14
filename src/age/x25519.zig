@@ -79,6 +79,11 @@ pub const X25519Recipient = struct {
             return Error.ShareSecretIsZero;
         };
 
+        const size = base64Encoder.calcSize(ephemeral_share.len);
+        const encoded_emphemeral_share = try allocator.alloc(u8, size);
+        defer allocator.free(encoded_emphemeral_share);
+        _ = base64Encoder.encode(encoded_emphemeral_share, &ephemeral_share);
+
         var salt: [X25519.public_length * 2]u8 = undefined;
         @memcpy(salt[0..ephemeral_share.len], &ephemeral_share);
         @memcpy(salt[ephemeral_share.len..], &self.their_public_key);
@@ -107,7 +112,7 @@ pub const X25519Recipient = struct {
         return Stanza.create(
             allocator,
             "X25519",
-            &.{&ephemeral_share},
+            &.{encoded_emphemeral_share},
             &body,
         );
     }
