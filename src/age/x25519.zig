@@ -69,7 +69,7 @@ pub const X25519Recipient = struct {
         };
     }
 
-    pub fn wrap(context: *const anyopaque, allocator: Allocator, file_key: []const u8) anyerror!Stanza {
+    fn wrap(context: *const anyopaque, allocator: Allocator, file_key: []const u8) anyerror!Stanza {
         const self: *const X25519Recipient = @ptrCast(@alignCast(context));
 
         var ephemeral_secret: [X25519.secret_length]u8 = undefined;
@@ -150,7 +150,7 @@ pub const X25519Identity = struct {
         };
     }
 
-    pub fn unwrap(context: *const anyopaque, stanzas: []const Stanza) anyerror!?[file_key_size]u8 {
+    fn unwrap(context: *const anyopaque, stanzas: []const Stanza) anyerror!?[file_key_size]u8 {
         const self: *const X25519Identity = @ptrCast(@alignCast(context));
 
         for (stanzas) |stanza| {
