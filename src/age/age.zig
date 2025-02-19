@@ -88,9 +88,7 @@ pub const AgeEncryptor = struct {
         }
 
         for (recipients, 0..) |recipient, i| {
-            const stanza = recipient.wrap(allocator, &file_key) catch {
-                return Error.MalformedHeader;
-            };
+            const stanza = try recipient.wrap(allocator, &file_key);
             stanzas[i] = stanza;
         }
 
