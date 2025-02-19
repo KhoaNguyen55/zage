@@ -17,6 +17,9 @@ pub const AnyIdentity = format.AnyIdentity;
 pub const AnyRecipient = format.AnyRecipient;
 pub const file_key_size = format.file_key_size;
 
+pub const x25519 = @import("x25519.zig");
+pub const scrypt = @import("scrypt.zig");
+
 const payload_key_nonce_length = 16;
 
 const payload_label = "payload";
