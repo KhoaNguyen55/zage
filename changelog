@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2025-02-20
+
+## Added
+- Expose X25519 and Scrypt identity/recipient in the module
+- Zage: the cli interface to encrypt/decrypt age files
+
+## Changed
+- Return actual error type when recipient wrapping fails instead of
+MalformedHeader
+
 ## [0.2.1] - 2025-02-14
 
 ### Fixed
