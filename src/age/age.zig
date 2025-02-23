@@ -135,12 +135,13 @@ pub const AgeEncryptor = struct {
         var written: usize = 0;
         while (written < source.len) {
             const written_size = @min(chunk_size - self.buffer_pos, source.len - written);
-            const new_size = self.buffer_pos + written_size;
+            const new_buf_size = self.buffer_pos + written_size;
+            const new_written_size = written + written_size;
 
-            @memcpy(self.buffer[self.buffer_pos..new_size], source[written .. written + written_size]);
+            @memcpy(self.buffer[self.buffer_pos..new_buf_size], source[written..new_written_size]);
 
-            written += written_size;
-            self.buffer_pos += written_size;
+            written = new_written_size;
+            self.buffer_pos = new_buf_size;
 
             if (self.buffer_pos == chunk_size) {
                 try self.encryptChunk(false);
