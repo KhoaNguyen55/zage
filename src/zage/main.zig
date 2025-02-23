@@ -5,6 +5,13 @@ const age = @import("age");
 
 const fatal = std.zig.fatal;
 
+fn printUsage() void {
+    std.debug.print(
+        \\Usage: zage [-h] [-e | -d] [-i <file>...] [-r <string>...] [-R <file>...] [-p] [-o <file>] <file>
+        \\
+    , .{});
+}
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer {
@@ -18,18 +25,18 @@ pub fn main() !void {
         \\-h, --help                        Display this help and exit.
         \\-e, --encrypt                     Encrypt input to output, default.
         \\-d, --decrypt                     Decrypt input to output.
-        \\-i, --identityfile <PATH>...      Encrypt/Decrypt using identity at path, can be repeated.
-        \\-r, --recipient <STRING>...       Encrypt to recipient, can be repeated.
-        \\-R, --recipientfile <PATH>...     Encrypt to recipients at path, can be repeated.
+        \\-i, --identity-file <file>...      Encrypt/Decrypt using identity at file, can be repeated.
+        \\-r, --recipient <string>...       Encrypt to recipient, can be repeated.
+        \\-R, --recipient-file <file>...     Encrypt to recipients at file, can be repeated.
         \\-p, --passphrase                  Encrypt using passphrase.
-        \\-o, --output <PATH>               Path to output file, default to stdout.
-        \\<PATH>
+        \\-o, --output <file>               Path to output file, default to stdout.
+        \\<file>                            Path to file to encrypt or decrypt.
         \\
     );
 
     const parsers = comptime .{
-        .PATH = clap.parsers.string,
-        .STRING = clap.parsers.string,
+        .file = clap.parsers.string,
+        .string = clap.parsers.string,
     };
 
     var diag = clap.Diagnostic{};
@@ -45,7 +52,8 @@ pub fn main() !void {
     const args = res.args;
 
     if (args.help != 0) {
-        try clap.usage(std.io.getStdErr().writer(), clap.Help, &params);
+        printUsage();
+        std.debug.print("Options:\n", .{});
         return clap.help(std.io.getStdErr().writer(), clap.Help, &params, .{});
     }
 
