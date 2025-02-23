@@ -1,9 +1,13 @@
 const std = @import("std");
+const builtin = @import("builtin");
+
+const Allocator = std.mem.Allocator;
 
 const clap = @import("clap");
 const age = @import("age");
 
 const fatal = std.zig.fatal;
+const assert = std.debug.assert;
 
 fn printUsage() void {
     std.debug.print(
@@ -88,6 +92,48 @@ pub fn main() !void {
     }
 }
 
+fn changeInputEcho(enable: bool) !void {
+    if (builtin.os.tag == .windows) {
+        const handle = std.io.getStdIn().handle;
+
+        var flags: u32 = undefined;
+        if (std.os.windows.kernel32.GetConsoleMode(handle, &flags) == 0) {
+            fatal("Not inside a terminal", .{});
+        }
+
+        const echo_enable: u32 = 0x0004;
+        if (enable) {
+            flags &= ~echo_enable;
+        } else {
+            flags &= echo_enable;
+        }
+
+        assert(std.os.windows.kernel32.SetConsoleMode(handle, flags) != 0);
+    } else {
+        var termios = try std.posix.tcgetattr(std.posix.STDIN_FILENO);
+        if (enable) {
+            termios.lflag.ECHO = true;
+        } else {
+            termios.lflag.ECHO = false;
+        }
+        try std.posix.tcsetattr(std.posix.STDIN_FILENO, .NOW, termios);
+    }
+}
+
+fn getPassphrase(allocator: Allocator) ![]const u8 {
+    const stdin = std.io.getStdIn();
+
+    var passphrase = std.ArrayList(u8).init(allocator);
+
+    std.debug.print("Passphrase: ", .{});
+
+    try changeInputEcho(false);
+    try stdin.reader().streamUntilDelimiter(passphrase.writer(), '\n', null);
+    try changeInputEcho(true);
+
+    return passphrase.toOwnedSlice();
+}
+
 fn handleEncryption(allocator: Allocator, args: anytype, input: std.fs.File) !void {
     var recipient: union(enum) {
         x25519: age.x25519.X25519Recipient,
@@ -110,7 +156,11 @@ fn handleEncryption(allocator: Allocator, args: anytype, input: std.fs.File) !vo
         }
     } else if (args.passphrase != 0) {
         //TODO: secure way to get password from stdin
-        const passphrase = "test";
+        const passphrase = try getPassphrase(allocator);
+        defer allocator.free(passphrase);
+
+        std.debug.print("\nEncrypting using passphrase, this might take a while...\n", .{});
+
         recipient = .{ .scrypt = try age.scrypt.ScryptRecipient.create(allocator, passphrase, null) };
     } else {
         fatal("Missing identity, recipient or passphrase.", .{});
