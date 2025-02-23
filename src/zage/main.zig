@@ -74,8 +74,8 @@ pub fn main() !void {
     }
 
     if (args.passphrase != 0 and (args.recipient.len != 0 or
-        args.recipientfile.len != 0 or
-        args.identityfile.len != 0))
+        args.@"recipient-file".len != 0 or
+        args.@"recipient-file".len != 0))
     {
         std.debug.print("Passphrase can not be use in conjuction with recipient or identity.", .{});
         return;
@@ -84,48 +84,52 @@ pub fn main() !void {
     if (args.decrypt != 0) {
         fatal("Not implemented.", .{});
     } else {
-        var recipient: union(enum) {
-            x25519: age.x25519.X25519Recipient,
-            scrypt: age.scrypt.ScryptRecipient,
-        } = undefined;
-
-        if (args.recipientfile.len != 0) {
-            fatal("Not implemented.", .{});
-        }
-
-        if (args.recipient.len > 1) {
-            fatal("Not implemented.", .{});
-        }
-
-        if (args.recipient.len != 0) {
-            for (args.recipient) |str| {
-                recipient = .{ .x25519 = age.x25519.X25519Recipient.parse(allocator, str) catch |err| {
-                    fatal("Failed to create recipient '{s}': {s}", .{ str, @errorName(err) });
-                } };
-            }
-        } else if (args.passphrase != 0) {
-            //TODO: secure way to get password from stdin
-            const passphrase = "test";
-            recipient = .{ .scrypt = try age.scrypt.ScryptRecipient.create(allocator, passphrase, null) };
-        } else {
-            fatal("Missing identity, recipient or passphrase.", .{});
-        }
-
-        const any_recipient: age.AnyRecipient = switch (recipient) {
-            .scrypt => recipient.scrypt.any(),
-            .x25519 => recipient.x25519.any(),
-        };
-        defer any_recipient.destroy();
-
-        const buffer = try input.readToEndAlloc(allocator, std.math.maxInt(usize));
-        defer allocator.free(buffer);
-
-        var encryptor = try age.AgeEncryptor.encryptInit(
-            allocator,
-            &.{any_recipient},
-            std.io.getStdOut().writer().any(),
-        );
-        try encryptor.update(buffer);
-        try encryptor.finish();
+        try handleEncryption(allocator, args, input);
     }
+}
+
+fn handleEncryption(allocator: Allocator, args: anytype, input: std.fs.File) !void {
+    var recipient: union(enum) {
+        x25519: age.x25519.X25519Recipient,
+        scrypt: age.scrypt.ScryptRecipient,
+    } = undefined;
+
+    if (args.@"recipient-file".len != 0) {
+        fatal("Not implemented.", .{});
+    }
+
+    if (args.recipient.len > 1) {
+        fatal("Not implemented.", .{});
+    }
+
+    if (args.recipient.len != 0) {
+        for (args.recipient) |str| {
+            recipient = .{ .x25519 = age.x25519.X25519Recipient.parse(allocator, str) catch |err| {
+                fatal("Failed to create recipient '{s}': {s}", .{ str, @errorName(err) });
+            } };
+        }
+    } else if (args.passphrase != 0) {
+        //TODO: secure way to get password from stdin
+        const passphrase = "test";
+        recipient = .{ .scrypt = try age.scrypt.ScryptRecipient.create(allocator, passphrase, null) };
+    } else {
+        fatal("Missing identity, recipient or passphrase.", .{});
+    }
+
+    const any_recipient: age.AnyRecipient = switch (recipient) {
+        .scrypt => recipient.scrypt.any(),
+        .x25519 => recipient.x25519.any(),
+    };
+    defer any_recipient.destroy();
+
+    const buffer = try input.readToEndAlloc(allocator, std.math.maxInt(usize));
+    defer allocator.free(buffer);
+
+    var encryptor = try age.AgeEncryptor.encryptInit(
+        allocator,
+        &.{any_recipient},
+        std.io.getStdOut().writer().any(),
+    );
+    try encryptor.update(buffer);
+    try encryptor.finish();
 }
