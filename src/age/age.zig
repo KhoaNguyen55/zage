@@ -125,6 +125,9 @@ pub const AgeEncryptor = struct {
         };
     }
 
+    /// Write encrypted data to `AgeEncryptor.dest`
+    ///
+    /// Note: Data are only written in chunk of 64 KiB, if `source` is less than 64 KiB then another `AgeEncryptor.update()` call is needed, or use `AgeEncryptor.finish()` to finalize the encryption process.
     pub fn update(
         self: *AgeEncryptor,
         source: []const u8,
