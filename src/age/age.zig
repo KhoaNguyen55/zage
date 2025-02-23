@@ -1,3 +1,5 @@
+//! This module provide functions to encrypt and decrypt files using the [age](https://age-encryption.org/) format
+
 const std = @import("std");
 const assert = std.debug.assert;
 
