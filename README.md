@@ -16,6 +16,8 @@ TODO
 
 ## Zig library
 
+[Documentation](https://khoanguyen55.github.io/zage/)
+
 The library is for `zig v0.13.0` for now.
 
 To install as a zig library you can run the `zig fetch` command:
@@ -33,5 +35,3 @@ const age = b.dependency("age", .{
 });
 exe.root_module.addImport("age", age.module("age"));
 ```
-
-See `TODO` for api documentations
