@@ -44,6 +44,11 @@ pub fn main() !void {
 
     const args = res.args;
 
+    if (args.help != 0) {
+        try clap.usage(std.io.getStdErr().writer(), clap.Help, &params);
+        return clap.help(std.io.getStdErr().writer(), clap.Help, &params, .{});
+    }
+
     const input = blk: {
         if (res.positionals.len == 0) {
             fatal("Missing input file.", .{});
@@ -54,11 +59,6 @@ pub fn main() !void {
         };
     };
     defer input.close();
-
-    if (args.help != 0) {
-        try clap.usage(std.io.getStdErr().writer(), clap.Help, &params);
-        return clap.help(std.io.getStdErr().writer(), clap.Help, &params, .{});
-    }
 
     if (args.encrypt != 0 and args.decrypt != 0) {
         std.debug.print("Can't encrypt and decrypt at the same time.", .{});
