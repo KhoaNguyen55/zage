@@ -366,7 +366,7 @@ pub const Header = struct {
         for (self.recipients) |value| {
             value.destroy();
         }
-        test_allocator.free(self.recipients);
+        self.allocator.free(self.recipients);
     }
 };
 
