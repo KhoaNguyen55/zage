@@ -25,7 +25,7 @@ pub const scrypt = @import("scrypt.zig");
 const payload_key_nonce_length = 16;
 
 const payload_label = "payload";
-const header_label = "header";
+const header_label = format.header_label;
 const last_chunk_flag = 0x01;
 const payload_nonce_length = 12;
 const chunk_size = 64 * 1024;
@@ -69,65 +69,57 @@ pub const AgeEncryptor = struct {
     buffer: [chunk_size]u8,
     buffer_pos: usize,
     dest: std.io.AnyWriter,
+    header: Header,
 
-    /// Initialize the encryption process, the header will be write to `dest`.
+    /// Initialize the encryption process.
+    /// Use `AgeEncryptor.addRecipient()` and `AgeEncryptor.finalizeRecipients()` before `AgeEncryptor.update()`
     /// Use `AgeEncryptor.update()` to write encrypted data to `dest`.
     /// Must use `AgeEncryptor.finish()` to complete the encryption process.
     pub fn encryptInit(
         allocator: Allocator,
-        recipients: []const AnyRecipient,
-        dest: std.io.AnyWriter,
     ) anyerror!AgeEncryptor {
         var file_key: [file_key_size]u8 = undefined;
         random.bytes(&file_key);
 
-        var stanzas = try allocator.alloc(Stanza, recipients.len);
-        defer {
-            for (stanzas) |stanza| {
-                stanza.destroy();
-            }
-            allocator.free(stanzas);
-        }
+        const header = Header.init(allocator, file_key);
+        errdefer header.destroy();
 
-        for (recipients, 0..) |recipient, i| {
-            const stanza = try recipient.wrap(allocator, &file_key);
-            stanzas[i] = stanza;
-        }
-
-        var header = Header{
-            .allocator = allocator,
-            .recipients = stanzas,
-            .mac = null,
+        return .{
+            .payload_key = undefined,
+            .payload_nonce = [_]u8{0} ** payload_nonce_length,
+            .buffer = [_]u8{0} ** chunk_size,
+            .buffer_pos = 0,
+            .dest = undefined,
+            .header = header,
         };
+    }
 
-        const header_no_mac = try std.fmt.allocPrint(allocator, "{nomac}", .{header});
-        defer allocator.free(header_no_mac);
+    /// use `AgeEncryptor.finalizeRecipients()` after all recipients have been added.
+    pub fn addRecipient(self: *AgeEncryptor, recipient: anytype) !void {
+        errdefer self.header.destroy();
+        try self.header.update(recipient, self.file_key);
+    }
 
-        const hmac_key = computeHkdfKey(&file_key, "", header_label);
-        var hmac: [HmacSha256.mac_length]u8 = undefined;
-        HmacSha256.create(&hmac, header_no_mac, &hmac_key);
-
-        header.mac = hmac;
+    /// Finalizes all intended recipients for the encrypted data and write header to `dest`
+    pub fn finalizeRecipients(self: *AgeEncryptor, dest: std.io.AnyWriter) !void {
+        defer self.header.destroy();
+        try self.header.final(self.file_key);
 
         var key_nonce: [payload_key_nonce_length]u8 = undefined;
         random.bytes(&key_nonce);
 
-        const payload_key = computeHkdfKey(&file_key, &key_nonce, payload_label);
+        const payload_key = computeHkdfKey(&self.header.file_key, &key_nonce, payload_label);
 
-        try dest.print("{mac}\n", .{header});
-        try dest.writeAll(&key_nonce);
+        try self.dest.print("{mac}\n", .{self.header});
+        try self.dest.writeAll(&key_nonce);
 
-        // const buf = allocator.alloc(u8, chunk_size);
-        return .{
-            .payload_key = payload_key,
-            .payload_nonce = [_]u8{0} ** payload_nonce_length,
-            .buffer = [_]u8{0} ** chunk_size,
-            .buffer_pos = 0,
-            .dest = dest,
-        };
+        self.payload_key = payload_key;
+        self.dest = dest;
     }
 
     /// Write encrypted data to `AgeEncryptor.dest`
+    ///
+    /// Must be call after `AgeEncryptor.finalizeRecipients()`, undefined behavior otherwise.
     ///
     /// Note: Data are only written in chunk of 64 KiB, if `source` is less than 64 KiB then another `AgeEncryptor.update()` call is needed, or use `AgeEncryptor.finish()` to finalize the encryption process.
     pub fn update(
@@ -201,7 +193,7 @@ pub const AgeDecryptor = struct {
         defer header.destroy();
 
         const file_key: [file_key_size]u8 = for (identities) |identity| {
-            const key = identity.unwrap(header.recipients) catch {
+            const key = identity.unwrap(header.recipients.items) catch {
                 return Error.MalformedHeader;
             };
             if (key) |k| break k;
