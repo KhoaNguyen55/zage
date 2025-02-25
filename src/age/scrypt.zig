@@ -51,9 +51,7 @@ pub const ScryptRecipient = struct {
         };
     }
 
-    fn wrap(context: *const anyopaque, _: Allocator, file_key: []const u8) anyerror!Stanza {
-        const self: *const ScryptRecipient = @ptrCast(@alignCast(context));
-
+    pub fn wrap(self: ScryptRecipient, _: Allocator, file_key: []const u8) anyerror!Stanza {
         var scrypt_salt: [salt_length]u8 = undefined;
         random.bytes(&scrypt_salt);
 
@@ -100,13 +98,8 @@ pub const ScryptRecipient = struct {
         );
     }
 
-    fn destroy(context: *const anyopaque) void {
-        const self: *const ScryptRecipient = @ptrCast(@alignCast(context));
+    pub fn destroy(self: ScryptRecipient) void {
         self.allocator.free(self.passphrase);
-    }
-
-    pub fn any(self: *const ScryptRecipient) AnyRecipient {
-        return AnyRecipient{ .context = self, .wrapFn = wrap, .destroyFn = destroy };
     }
 };
 
@@ -122,9 +115,7 @@ pub const ScryptIdentity = struct {
         return ScryptIdentity{ .allocator = allocator, .passphrase = duped_passphrase };
     }
 
-    fn unwrap(context: *const anyopaque, stanzas: []const Stanza) anyerror!?[file_key_size]u8 {
-        const self: *const ScryptIdentity = @ptrCast(@alignCast(context));
-
+    pub fn unwrap(self: ScryptIdentity, stanzas: []const Stanza) anyerror!?[file_key_size]u8 {
         if (stanzas.len != 1) {
             return Error.ScryptStanzaMustBeAlone;
         }
@@ -209,13 +200,8 @@ pub const ScryptIdentity = struct {
         return null;
     }
 
-    fn destroy(context: *const anyopaque) void {
-        const self: *const ScryptIdentity = @ptrCast(@alignCast(context));
+    pub fn destroy(self: ScryptIdentity) void {
         self.allocator.free(self.passphrase);
-    }
-
-    pub fn any(self: *const ScryptIdentity) AnyIdentity {
-        return AnyIdentity{ .context = self, .unwrapFn = unwrap, .destroyFn = destroy };
     }
 };
 
@@ -225,15 +211,15 @@ test "encrypt/decrypt file_key" {
     const password = "hunter3";
 
     const recipient = try ScryptRecipient.create(test_allocator, password, null);
-    defer recipient.any().destroy();
+    defer recipient.destroy();
 
-    const wrapped_key = try recipient.any().wrap(test_allocator, &expected_key);
+    const wrapped_key = try recipient.wrap(test_allocator, &expected_key);
     defer wrapped_key.destroy();
 
     const identity = try ScryptIdentity.create(test_allocator, password);
-    defer identity.any().destroy();
+    defer identity.destroy();
 
-    const key = try identity.any().unwrap(&.{wrapped_key});
+    const key = try identity.unwrap(&.{wrapped_key});
     try testing.expectEqualSlices(u8, &expected_key, &key.?);
 }
 
@@ -245,7 +231,7 @@ test "encrypt/decrypt file" {
     const test_str = "Hello World!";
 
     const recipient = try ScryptRecipient.create(test_allocator, password, null);
-    defer recipient.any().destroy();
+    defer recipient.destroy();
 
     var array = ArrayList(u8).init(test_allocator);
     errdefer array.deinit();
@@ -256,7 +242,7 @@ test "encrypt/decrypt file" {
     try encryptor.finish();
 
     const identity = try ScryptIdentity.create(test_allocator, password);
-    defer identity.any().destroy();
+    defer identity.destroy();
 
     const owned = try array.toOwnedSlice();
     defer test_allocator.free(owned);
@@ -266,7 +252,7 @@ test "encrypt/decrypt file" {
     errdefer decryptarray.deinit();
     try AgeDecryptor.decryptFromReaderToWriter(
         test_allocator,
-        &.{identity.any()},
+        &.{identity},
         decryptarray.writer().any(),
         encrypt_file.reader().any(),
     );

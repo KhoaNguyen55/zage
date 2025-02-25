@@ -69,9 +69,7 @@ pub const X25519Recipient = struct {
         };
     }
 
-    fn wrap(context: *const anyopaque, allocator: Allocator, file_key: []const u8) anyerror!Stanza {
-        const self: *const X25519Recipient = @ptrCast(@alignCast(context));
-
+    pub fn wrap(self: X25519Recipient, allocator: Allocator, file_key: []const u8) anyerror!Stanza {
         var ephemeral_secret: [X25519.secret_length]u8 = undefined;
         random.bytes(&ephemeral_secret);
 
@@ -116,10 +114,6 @@ pub const X25519Recipient = struct {
             &body,
         );
     }
-
-    pub fn any(self: *const X25519Recipient) AnyRecipient {
-        return AnyRecipient{ .context = self, .wrapFn = wrap, .destroyFn = null };
-    }
 };
 
 pub const X25519Identity = struct {
@@ -155,9 +149,7 @@ pub const X25519Identity = struct {
         };
     }
 
-    fn unwrap(context: *const anyopaque, stanzas: []const Stanza) anyerror!?[file_key_size]u8 {
-        const self: *const X25519Identity = @ptrCast(@alignCast(context));
-
+    pub fn unwrap(self: X25519Identity, stanzas: []const Stanza) anyerror!?[file_key_size]u8 {
         for (stanzas) |stanza| {
             if (!std.mem.eql(u8, stanza.type, identity_type)) {
                 continue;
@@ -217,10 +209,6 @@ pub const X25519Identity = struct {
 
         return null;
     }
-
-    pub fn any(self: *const X25519Identity) AnyIdentity {
-        return AnyIdentity{ .context = self, .unwrapFn = unwrap, .destroyFn = null };
-    }
 };
 
 test "encrypt/decrypt file_key" {
@@ -228,13 +216,13 @@ test "encrypt/decrypt file_key" {
     random.bytes(&expected_key);
 
     const public_key = "age17mt2y8v5f3chc5dv22jz4unfcqey37v9jtxlcq834hx5cytjvp6s9txfk0";
-    const recipient = (try X25519Recipient.parse(test_allocator, public_key)).any();
+    const recipient = try X25519Recipient.parse(test_allocator, public_key);
     const wrapped_key = try recipient.wrap(test_allocator, &expected_key);
     defer wrapped_key.destroy();
 
     const secret_key = "AGE-SECRET-KEY-1QGN768HAM3H3SDL9WRZZYNP9JESEMEQFLFSJYLZE5A52U55WM2GQH8PMPW";
     const x25519 = try X25519Identity.parse(test_allocator, secret_key);
-    const key = try x25519.any().unwrap(&.{wrapped_key});
+    const key = try x25519.unwrap(&.{wrapped_key});
 
     try testing.expectEqualSlices(u8, &expected_key, &key.?);
 }
@@ -257,7 +245,7 @@ test "encrypt/decrypt file" {
 
     const test_str = "Hello World!";
     const public_key = "age17mt2y8v5f3chc5dv22jz4unfcqey37v9jtxlcq834hx5cytjvp6s9txfk0";
-    const recipient = (try X25519Recipient.parse(test_allocator, public_key)).any();
+    const recipient = try X25519Recipient.parse(test_allocator, public_key);
     var array = ArrayList(u8).init(test_allocator);
     errdefer array.deinit();
     var encryptor = try AgeEncryptor.encryptInit(test_allocator);
@@ -277,7 +265,7 @@ test "encrypt/decrypt file" {
     errdefer decryptarray.deinit();
     try AgeDecryptor.decryptFromReaderToWriter(
         test_allocator,
-        &.{identity.any()},
+        &.{identity},
         decryptarray.writer().any(),
         encrypt_file.reader().any(),
     );

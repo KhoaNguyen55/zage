@@ -15,8 +15,6 @@ const computeHkdfKey = @import("primitives.zig").computeHkdfKey;
 const format = @import("format.zig");
 const Header = format.Header;
 pub const Stanza = format.Stanza;
-pub const AnyIdentity = format.AnyIdentity;
-pub const AnyRecipient = format.AnyRecipient;
 pub const file_key_size = format.file_key_size;
 
 pub const x25519 = @import("x25519.zig");
