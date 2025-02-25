@@ -260,7 +260,9 @@ test "encrypt/decrypt file" {
     const recipient = (try X25519Recipient.parse(test_allocator, public_key)).any();
     var array = ArrayList(u8).init(test_allocator);
     errdefer array.deinit();
-    var encryptor = try AgeEncryptor.encryptInit(test_allocator, &.{recipient}, array.writer().any());
+    var encryptor = try AgeEncryptor.encryptInit(test_allocator);
+    try encryptor.addRecipient(recipient);
+    try encryptor.finalizeRecipients(array.writer().any());
     try encryptor.update(test_str[0..]);
     try encryptor.finish();
 
