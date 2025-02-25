@@ -9,12 +9,15 @@ const base64Decoder = std.base64.standard_no_pad.Decoder;
 const base64Encoder = std.base64.standard_no_pad.Encoder;
 const b64Error = std.base64.Error;
 
+const computeHkdfKey = @import("primitives.zig").computeHkdfKey;
+
 const assert = std.debug.assert;
 
 const testing = std.testing;
 const test_allocator = std.testing.allocator;
 
-const mac_length = std.crypto.auth.hmac.sha2.HmacSha256.mac_length;
+const HmacSha256 = std.crypto.auth.hmac.sha2.HmacSha256;
+const mac_length = HmacSha256.mac_length;
 const decoded_mac_length = 43;
 const stanza_columns = 64;
 
@@ -26,6 +29,7 @@ pub const version_line = "age-encryption.org/v1";
 pub const version_prefix = "age";
 pub const stanza_prefix = "-> ";
 pub const mac_prefix = "---";
+pub const header_label = "header";
 
 pub const Error = error{
     MalformedHeader,
@@ -215,9 +219,10 @@ test "Stanza parsing" {
 }
 
 pub const Header = struct {
-    recipients: []const Stanza,
+    recipients: ArrayList(Stanza),
     mac: ?[mac_length]u8,
     allocator: Allocator,
+    file_key: [file_key_size]u8,
     /// Parse the header of an age file.
     ///
     /// After the function returned, `reader` position will be at the start of the payload.
@@ -281,10 +286,48 @@ pub const Header = struct {
         const mac = try parseMac(input.items[start_idx..]);
 
         return Header{
-            .recipients = try recipients.toOwnedSlice(),
+            .recipients = recipients,
             .mac = mac,
+            .file_key = [_]u8{0} ** file_key_size,
             .allocator = allocator,
         };
+    }
+
+    /// Initialize a partial Header
+    ///
+    /// Use `Header.update()` to add a recipient and `Header.final()` to finalizes the header.
+    ///
+    /// Caller owns the memory of the returned `Header`, must be free with `Header.destroy()`.
+    pub fn init(allocator: Allocator, file_key: [file_key_size]u8) Header {
+        return Header{
+            .recipients = ArrayList(Stanza).init(allocator),
+            .mac = null,
+            .allocator = allocator,
+            .file_key = file_key,
+        };
+    }
+
+    /// Add a single recipient to a partial Header
+    ///
+    /// The function assert it is a partial header.
+    pub fn update(self: *Header, recipient: anytype) anyerror!void {
+        assert(!std.mem.allEqual(u8, &self.file_key, 0));
+
+        const stanza = try recipient.wrap(self.allocator, &self.file_key);
+        try self.*.recipients.append(stanza);
+    }
+
+    /// Finalize a partial header
+    pub fn final(self: *Header) anyerror!void {
+        const header_no_mac = try std.fmt.allocPrint(self.allocator, "{nomac}", .{self});
+        defer self.allocator.free(header_no_mac);
+
+        const hmac_key = computeHkdfKey(&self.file_key, "", header_label);
+        var hmac: [HmacSha256.mac_length]u8 = undefined;
+        HmacSha256.create(&hmac, header_no_mac, &hmac_key);
+
+        self.*.file_key = [_]u8{0} ** file_key_size;
+        self.*.mac = hmac;
     }
 
     pub fn format(
@@ -303,7 +346,7 @@ pub const Header = struct {
         };
 
         try writer.writeAll(version_line ++ "\n");
-        for (self.recipients) |stanza| {
+        for (self.recipients.items) |stanza| {
             try writer.print("{s}\n", .{stanza});
         }
 
@@ -363,10 +406,10 @@ pub const Header = struct {
     }
 
     pub fn destroy(self: Header) void {
-        for (self.recipients) |value| {
+        for (self.recipients.items) |value| {
             value.destroy();
         }
-        test_allocator.free(self.recipients);
+        self.recipients.deinit();
     }
 };
 
