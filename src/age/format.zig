@@ -222,7 +222,6 @@ pub const Header = struct {
     recipients: ArrayList(Stanza),
     mac: ?[mac_length]u8,
     allocator: Allocator,
-    file_key: [file_key_size]u8,
     /// Parse the header of an age file.
     ///
     /// After the function returned, `reader` position will be at the start of the payload.
@@ -288,7 +287,6 @@ pub const Header = struct {
         return Header{
             .recipients = recipients,
             .mac = mac,
-            .file_key = [_]u8{0} ** file_key_size,
             .allocator = allocator,
         };
     }
@@ -298,35 +296,33 @@ pub const Header = struct {
     /// Use `Header.update()` to add a recipient and `Header.final()` to finalizes the header.
     ///
     /// Caller owns the memory of the returned `Header`, must be free with `Header.destroy()`.
-    pub fn init(allocator: Allocator, file_key: [file_key_size]u8) Header {
+    pub fn init(allocator: Allocator) Header {
         return Header{
             .recipients = ArrayList(Stanza).init(allocator),
             .mac = null,
             .allocator = allocator,
-            .file_key = file_key,
         };
     }
 
     /// Add a single recipient to a partial Header
     ///
     /// The function assert it is a partial header.
-    pub fn update(self: *Header, recipient: anytype) anyerror!void {
-        assert(!std.mem.allEqual(u8, &self.file_key, 0));
+    pub fn update(self: *Header, recipient: anytype, file_key: [file_key_size]u8) anyerror!void {
+        assert(self.mac == null);
 
-        const stanza = try recipient.wrap(self.allocator, &self.file_key);
+        const stanza = try recipient.wrap(self.allocator, &file_key);
         try self.*.recipients.append(stanza);
     }
 
     /// Finalize a partial header
-    pub fn final(self: *Header) anyerror!void {
+    pub fn final(self: *Header, file_key: [file_key_size]u8) anyerror!void {
         const header_no_mac = try std.fmt.allocPrint(self.allocator, "{nomac}", .{self});
         defer self.allocator.free(header_no_mac);
 
-        const hmac_key = computeHkdfKey(&self.file_key, "", header_label);
+        const hmac_key = computeHkdfKey(&file_key, "", header_label);
         var hmac: [HmacSha256.mac_length]u8 = undefined;
         HmacSha256.create(&hmac, header_no_mac, &hmac_key);
 
-        self.*.file_key = [_]u8{0} ** file_key_size;
         self.*.mac = hmac;
     }
 

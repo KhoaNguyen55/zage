@@ -68,6 +68,7 @@ pub const AgeEncryptor = struct {
     buffer_pos: usize,
     dest: std.io.AnyWriter,
     header: Header,
+    file_key: [file_key_size]u8,
 
     /// Initialize the encryption process.
     /// Use `AgeEncryptor.addRecipient()` and `AgeEncryptor.finalizeRecipients()` before `AgeEncryptor.update()`
@@ -79,7 +80,7 @@ pub const AgeEncryptor = struct {
         var file_key: [file_key_size]u8 = undefined;
         random.bytes(&file_key);
 
-        const header = Header.init(allocator, file_key);
+        const header = Header.init(allocator);
         errdefer header.destroy();
 
         return .{
@@ -89,6 +90,7 @@ pub const AgeEncryptor = struct {
             .buffer_pos = 0,
             .dest = undefined,
             .header = header,
+            .file_key = file_key,
         };
     }
 
@@ -106,10 +108,10 @@ pub const AgeEncryptor = struct {
         var key_nonce: [payload_key_nonce_length]u8 = undefined;
         random.bytes(&key_nonce);
 
-        const payload_key = computeHkdfKey(&self.header.file_key, &key_nonce, payload_label);
+        const payload_key = computeHkdfKey(&self.file_key, &key_nonce, payload_label);
 
-        try self.dest.print("{mac}\n", .{self.header});
-        try self.dest.writeAll(&key_nonce);
+        try dest.print("{mac}\n", .{self.header});
+        try dest.writeAll(&key_nonce);
 
         self.payload_key = payload_key;
         self.dest = dest;
