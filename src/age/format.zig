@@ -37,7 +37,6 @@ pub const Error = error{
 } || Allocator.Error;
 
 /// Split a string by space( ) and duplicate each substring into an array.
-///
 /// Caller owns the returned array of string.
 fn splitArgs(allocator: Allocator, src: []const u8) Allocator.Error![][]const u8 {
     var iter = std.mem.splitScalar(u8, src, ' ');
@@ -61,7 +60,6 @@ pub const Stanza = struct {
     body: []const u8,
     arena: ArenaAllocator,
     /// Parse a stanza string.
-    ///
     /// Caller owns the returned memory, must be free with `Stanza.destroy()`.
     pub fn parse(
         allocator: Allocator,
@@ -123,9 +121,7 @@ pub const Stanza = struct {
     }
 
     /// Create a stanza
-    ///
     /// `args` and `body` memory are copied and managed internally
-    ///
     /// Caller owns the returned memory, must be free with `Stanza.destroy()`.
     pub fn create(
         allocator: Allocator,
@@ -223,9 +219,7 @@ pub const Header = struct {
     mac: ?[mac_length]u8,
     allocator: Allocator,
     /// Parse the header of an age file.
-    ///
     /// After the function returned, `reader` position will be at the start of the payload.
-    ///
     /// Caller owns the memory of the returned `Header`, must be free with `Header.destroy()`.
     pub fn parse(
         allocator: Allocator,
@@ -292,9 +286,7 @@ pub const Header = struct {
     }
 
     /// Initialize a partial Header
-    ///
     /// Use `Header.update()` to add a recipient and `Header.final()` to finalizes the header.
-    ///
     /// Caller owns the memory of the returned `Header`, must be free with `Header.destroy()`.
     pub fn init(allocator: Allocator) Header {
         return Header{
@@ -305,7 +297,6 @@ pub const Header = struct {
     }
 
     /// Add a single recipient to a partial Header
-    ///
     /// The function assert it is a partial header.
     pub fn update(self: *Header, recipient: anytype, file_key: [file_key_size]u8) anyerror!void {
         assert(self.mac == null);

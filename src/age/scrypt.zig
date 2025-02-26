@@ -40,7 +40,6 @@ pub const ScryptRecipient = struct {
     work_factor: u6,
 
     /// Create `ScryptRecipient` from passhprase.
-    ///
     /// Caller owns the returned memory, must be free with `AnyRecipient.destroy()`.
     pub fn create(allocator: Allocator, passphrase: []const u8, work_factor: ?u6) Allocator.Error!ScryptRecipient {
         const duped_passphrase = try allocator.dupe(u8, passphrase);
@@ -108,7 +107,6 @@ pub const ScryptIdentity = struct {
     passphrase: []const u8,
 
     /// Create a `ScryptIdentity` from passphrase.
-    ///
     /// Caller owns the returned memory, must be free with `AnyIdentity.destroy()`.
     pub fn create(allocator: Allocator, passphrase: []const u8) Allocator.Error!ScryptIdentity {
         const duped_passphrase = try allocator.dupe(u8, passphrase);

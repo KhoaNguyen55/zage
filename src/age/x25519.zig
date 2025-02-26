@@ -43,10 +43,8 @@ pub const X25519Recipient = struct {
     their_public_key: [X25519.public_length]u8,
 
     /// Parse X25519 recipient from bech32 encoded public key.
-    ///
     /// The returned memory does not need to be free.
     pub fn parse(allocator: Allocator, key: []const u8) Error!X25519Recipient {
-        // const decoded_key = try bech32.decode(allocator, key);
         const decoded_key = bech32.decode(allocator, key) catch {
             return Error.InvalidBech32String;
         };
@@ -120,7 +118,6 @@ pub const X25519Identity = struct {
     secret_key: [X25519.secret_length]u8,
     our_public_key: [X25519.public_length]u8,
     /// Parse X25519 identity from bech32 encoded secret key.
-    ///
     /// The returned memory does not need to be free.
     pub fn parse(allocator: Allocator, key: []const u8) Error!X25519Identity {
         const decoded_key = bech32.decode(allocator, key) catch {

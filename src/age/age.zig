@@ -71,7 +71,6 @@ pub const AgeEncryptor = struct {
     file_key: [file_key_size]u8,
 
     /// Initialize the encryption process.
-    ///
     /// Use `AgeEncryptor.addRecipient()` and `AgeEncryptor.finalizeRecipients()` before `AgeEncryptor.update()`
     /// Use `AgeEncryptor.update()` to write encrypted data to `dest`.
     /// Must use `AgeEncryptor.finish()` to complete the encryption process.
@@ -119,9 +118,7 @@ pub const AgeEncryptor = struct {
     }
 
     /// Write encrypted data to `AgeEncryptor.dest`
-    ///
     /// Must be call after `AgeEncryptor.finalizeRecipients()`, undefined behavior otherwise.
-    ///
     /// Note: Data are only written in chunk of 64 KiB, if `source` is less than 64 KiB then another `AgeEncryptor.update()` call is needed, or use `AgeEncryptor.finish()` to finalize the encryption process.
     pub fn update(
         self: *AgeEncryptor,
@@ -188,7 +185,6 @@ pub const AgeDecryptor = struct {
     allocator: Allocator,
 
     /// Initialize the decryption process.
-    ///
     /// Use `AgeDecryptor.addIdentity()` and `AgeDecryptor.finalizeIdentities()` before `AgeDecryptor.get()`
     pub fn decryptInit(allocator: Allocator, source: std.io.AnyReader) anyerror!AgeDecryptor {
         const header = try Header.parse(allocator, source);
@@ -244,9 +240,7 @@ pub const AgeDecryptor = struct {
     }
 
     /// Returns decrypted data from internal buffer, the next call to `AgeDecryptor.get()` will invalid the current pointer.
-    ///
     /// If `len` of returned data is less than 64KiB then the decryption process is complete, any subsequence call will return a slice len of zero.
-    ///
     /// Must be call after `AgeDecryptor.finalizeIdentities()`, undefined behavior otherwise.
     pub fn get(self: *AgeDecryptor) anyerror![]const u8 {
         if (self.last) {
