@@ -71,6 +71,7 @@ pub const AgeEncryptor = struct {
     file_key: [file_key_size]u8,
 
     /// Initialize the encryption process.
+    ///
     /// Use `AgeEncryptor.addRecipient()` and `AgeEncryptor.finalizeRecipients()` before `AgeEncryptor.update()`
     /// Use `AgeEncryptor.update()` to write encrypted data to `dest`.
     /// Must use `AgeEncryptor.finish()` to complete the encryption process.
@@ -94,7 +95,7 @@ pub const AgeEncryptor = struct {
         };
     }
 
-    /// use `AgeEncryptor.finalizeRecipients()` after all recipients have been added.
+    /// Use `AgeEncryptor.finalizeRecipients()` after all recipients have been added.
     pub fn addRecipient(self: *AgeEncryptor, recipient: anytype) !void {
         errdefer self.header.destroy();
         try self.header.update(recipient, self.file_key);
@@ -186,6 +187,9 @@ pub const AgeDecryptor = struct {
     file_key: ?[file_key_size]u8,
     allocator: Allocator,
 
+    /// Initialize the decryption process.
+    ///
+    /// Use `AgeDecryptor.addIdentity()` and `AgeDecryptor.finalizeIdentities()` before `AgeDecryptor.get()`
     pub fn decryptInit(allocator: Allocator, source: std.io.AnyReader) anyerror!AgeDecryptor {
         const header = try Header.parse(allocator, source);
         errdefer header.destroy();
@@ -203,6 +207,7 @@ pub const AgeDecryptor = struct {
         };
     }
 
+    /// Use `AgeDecryptor.finalizeIdentities()` after all identity have been added.
     pub fn addIdentity(self: *AgeDecryptor, identity: anytype) anyerror!void {
         errdefer self.header.destroy();
         if (self.file_key == null) {
@@ -239,6 +244,10 @@ pub const AgeDecryptor = struct {
     }
 
     /// Returns decrypted data from internal buffer, the next call to `AgeDecryptor.get()` will invalid the current pointer.
+    ///
+    /// If `len` of returned data is less than 64KiB then the decryption process is complete, any subsequence call will return a slice len of zero.
+    ///
+    /// Must be call after `AgeDecryptor.finalizeIdentities()`, undefined behavior otherwise.
     pub fn get(self: *AgeDecryptor) anyerror![]const u8 {
         if (self.last) {
             return "";

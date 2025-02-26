@@ -155,7 +155,6 @@ fn handleEncryption(allocator: Allocator, args: anytype, input: std.fs.File) !vo
             } };
         }
     } else if (args.passphrase != 0) {
-        //TODO: secure way to get password from stdin
         const passphrase = try getPassphrase(allocator);
         defer allocator.free(passphrase);
 
