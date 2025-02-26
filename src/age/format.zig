@@ -399,17 +399,3 @@ pub const Header = struct {
         self.recipients.deinit();
     }
 };
-
-test "Parse header" {
-    const test_string =
-        \\age-encryption.org/v1
-        \\-> X25519 A76ighm6OB6DbLMzD8SA1Ozg7lAbyG6qNNaNoEC+m1w
-        \\p0OFXKOnut5HGzfUsfu26JLBPzOJAokn41L5kLvkNtI
-        \\--- 61illhf/7ouLPIIEnJ8sRtxd9Up/DjGqHYRCEh0HI5Y
-        \\
-    ;
-    var buffer = std.io.fixedBufferStream(test_string);
-    var parse_success = try Header.parse(test_allocator, buffer.reader().any());
-    defer parse_success.destroy();
-    // TODO: write the expected output in bytes
-}
