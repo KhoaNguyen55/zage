@@ -13,8 +13,6 @@ const base64Encoder = std.base64.standard_no_pad.Encoder;
 const b64Error = std.base64.Error;
 
 const format = @import("format.zig");
-const AnyIdentity = format.AnyIdentity;
-const AnyRecipient = format.AnyRecipient;
 const Stanza = format.Stanza;
 const file_key_size = format.file_key_size;
 
@@ -108,6 +106,10 @@ pub const ScryptIdentity = struct {
     pub fn create(allocator: Allocator, passphrase: []const u8) Allocator.Error!ScryptIdentity {
         const duped_passphrase = try allocator.dupe(u8, passphrase);
         return ScryptIdentity{ .allocator = allocator, .passphrase = duped_passphrase };
+    }
+
+    pub fn recipient(self: ScryptIdentity) ScryptRecipient {
+        return ScryptRecipient{ self.allocator, self.passphrase, 18 };
     }
 
     pub fn unwrap(self: ScryptIdentity, stanzas: []const Stanza) anyerror!?[file_key_size]u8 {

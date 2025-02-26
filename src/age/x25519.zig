@@ -16,8 +16,6 @@ const b64Error = std.base64.Error;
 const computeHkdfKey = @import("primitives.zig").computeHkdfKey;
 
 const format = @import("format.zig");
-const AnyIdentity = format.AnyIdentity;
-const AnyRecipient = format.AnyRecipient;
 const Stanza = format.Stanza;
 const file_key_size = format.file_key_size;
 
@@ -141,6 +139,10 @@ pub const X25519Identity = struct {
             .secret_key = secret_key,
             .our_public_key = public_key,
         };
+    }
+
+    pub fn recipient(self: X25519Identity) X25519Recipient {
+        return X25519Recipient{ .their_public_key = self.our_public_key };
     }
 
     pub fn unwrap(self: X25519Identity, stanzas: []const Stanza) anyerror!?[file_key_size]u8 {
