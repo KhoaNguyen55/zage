@@ -21,9 +21,6 @@ const AnyRecipient = format.AnyRecipient;
 const Stanza = format.Stanza;
 const file_key_size = format.file_key_size;
 
-const testing = std.testing;
-const test_allocator = std.testing.allocator;
-
 const x25519_label = "age-encryption.org/v1/X25519";
 const secret_key_hrp = "AGE-SECRET-KEY-";
 const public_key_hrp = "age";
@@ -209,6 +206,9 @@ pub const X25519Identity = struct {
 };
 
 test "encrypt/decrypt file_key" {
+    const testing = std.testing;
+    const test_allocator = std.testing.allocator;
+
     var expected_key: [file_key_size]u8 = undefined;
     random.bytes(&expected_key);
 
@@ -225,6 +225,9 @@ test "encrypt/decrypt file_key" {
 }
 
 test "Identity parsing" {
+    const testing = std.testing;
+    const test_allocator = std.testing.allocator;
+
     const expected_sec_key = "AGE-SECRET-KEY-1QGN768HAM3H3SDL9WRZZYNP9JESEMEQFLFSJYLZE5A52U55WM2GQH8PMPW";
     const expected_pub_key = "age17mt2y8v5f3chc5dv22jz4unfcqey37v9jtxlcq834hx5cytjvp6s9txfk0";
     const x25519 = try X25519Identity.parse(test_allocator, expected_sec_key);

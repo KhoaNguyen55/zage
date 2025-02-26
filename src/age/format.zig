@@ -13,9 +13,6 @@ const computeHkdfKey = @import("primitives.zig").computeHkdfKey;
 
 const assert = std.debug.assert;
 
-const testing = std.testing;
-const test_allocator = std.testing.allocator;
-
 const HmacSha256 = std.crypto.auth.hmac.sha2.HmacSha256;
 const mac_length = HmacSha256.mac_length;
 const decoded_mac_length = 43;
@@ -188,6 +185,9 @@ pub const Stanza = struct {
 };
 
 test "Stanza parsing" {
+    const testing = std.testing;
+    const test_allocator = std.testing.allocator;
+
     const test_string =
         \\-> X25519 A76ighm6OB6DbLMzD8SA1Ozg7lAbyG6qNNaNoEC+m1w
         \\p0OFXKOnut5HGzfUsfu26JLBPzOJAokn41L5kLvkNtI

@@ -18,9 +18,6 @@ const AnyRecipient = format.AnyRecipient;
 const Stanza = format.Stanza;
 const file_key_size = format.file_key_size;
 
-const testing = std.testing;
-const test_allocator = std.testing.allocator;
-
 const scrypt_label = "age-encryption.org/v1/scrypt";
 const identity_type = "scrypt";
 const salt_length = 16;
@@ -204,6 +201,9 @@ pub const ScryptIdentity = struct {
 };
 
 test "encrypt/decrypt file_key" {
+    const testing = std.testing;
+    const test_allocator = std.testing.allocator;
+
     var expected_key: [file_key_size]u8 = undefined;
     random.bytes(&expected_key);
     const password = "hunter3";
