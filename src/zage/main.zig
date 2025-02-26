@@ -135,24 +135,19 @@ fn getPassphrase(allocator: Allocator) ![]const u8 {
 }
 
 fn handleEncryption(allocator: Allocator, args: anytype, input: std.fs.File) !void {
-    var recipient: union(enum) {
-        x25519: age.x25519.X25519Recipient,
-        scrypt: age.scrypt.ScryptRecipient,
-    } = undefined;
+    var encryptor = age.AgeEncryptor.encryptInit(allocator);
 
     if (args.@"recipient-file".len != 0) {
         fatal("Not implemented.", .{});
     }
 
-    if (args.recipient.len > 1) {
-        fatal("Not implemented.", .{});
-    }
-
     if (args.recipient.len != 0) {
         for (args.recipient) |str| {
-            recipient = .{ .x25519 = age.x25519.X25519Recipient.parse(allocator, str) catch |err| {
+            const identity = age.x25519.X25519Recipient.parse(allocator, str) catch |err| {
                 fatal("Failed to create recipient '{s}': {s}", .{ str, @errorName(err) });
-            } };
+            };
+
+            try encryptor.addRecipient(identity);
         }
     } else if (args.passphrase != 0) {
         const passphrase = try getPassphrase(allocator);
@@ -160,25 +155,20 @@ fn handleEncryption(allocator: Allocator, args: anytype, input: std.fs.File) !vo
 
         std.debug.print("\nEncrypting using passphrase, this might take a while...\n", .{});
 
-        recipient = .{ .scrypt = try age.scrypt.ScryptRecipient.create(allocator, passphrase, null) };
+        const identity = age.scrypt.ScryptRecipient.create(allocator, passphrase, null) catch |err| {
+            fatal("Failed to create scrypt recipient: {s}", .{@errorName(err)});
+        };
+        defer identity.destroy();
+
+        try encryptor.addRecipient(identity);
     } else {
         fatal("Missing identity, recipient or passphrase.", .{});
     }
 
-    const any_recipient: age.AnyRecipient = switch (recipient) {
-        .scrypt => recipient.scrypt.any(),
-        .x25519 => recipient.x25519.any(),
-    };
-    defer any_recipient.destroy();
-
     const buffer = try input.readToEndAlloc(allocator, std.math.maxInt(usize));
     defer allocator.free(buffer);
 
-    var encryptor = try age.AgeEncryptor.encryptInit(
-        allocator,
-        &.{any_recipient},
-        std.io.getStdOut().writer().any(),
-    );
+    try encryptor.finalizeRecipients(output);
     try encryptor.update(buffer);
     try encryptor.finish();
 }
