@@ -72,6 +72,29 @@ pub fn main() !void {
     };
     defer input.close();
 
+    const output_file = blk: {
+        if (args.output) |path| {
+            break :blk std.fs.cwd().openFile(path, .{ .mode = .write_only }) catch |err| {
+                fatal("Can't open file '{s}': {s}", .{ path, @errorName(err) });
+            };
+        } else {
+            break :blk null;
+        }
+    };
+    defer {
+        if (output_file) |file| {
+            file.close();
+        }
+    }
+
+    const output = blk: {
+        if (output_file) |file| {
+            break :blk file.writer().any();
+        } else {
+            break :blk std.io.getStdOut().writer().any();
+        }
+    };
+
     if (args.encrypt != 0 and args.decrypt != 0) {
         std.debug.print("Can't encrypt and decrypt at the same time.", .{});
         return;
@@ -88,7 +111,7 @@ pub fn main() !void {
     if (args.decrypt != 0) {
         fatal("Not implemented.", .{});
     } else {
-        try handleEncryption(allocator, args, input);
+        try handleEncryption(allocator, args, input, output);
     }
 }
 
@@ -134,7 +157,7 @@ fn getPassphrase(allocator: Allocator) ![]const u8 {
     return passphrase.toOwnedSlice();
 }
 
-fn handleEncryption(allocator: Allocator, args: anytype, input: std.fs.File) !void {
+fn handleEncryption(allocator: Allocator, args: anytype, input: std.fs.File, output: std.io.AnyWriter) !void {
     var encryptor = age.AgeEncryptor.encryptInit(allocator);
 
     if (args.@"recipient-file".len != 0) {
