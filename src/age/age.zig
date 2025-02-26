@@ -308,4 +308,70 @@ test {
     _ = @import("bech32.zig");
     _ = @import("format.zig");
     _ = @import("x25519.zig");
+    _ = @import("scrypt.zig");
+}
+
+test "Scrypt encrypt/decrypt file" {
+    const testing = std.testing;
+    const test_allocator = std.testing.allocator;
+
+    const password = "prey2";
+    const test_str = "Hello World!";
+
+    const recipient = try scrypt.ScryptRecipient.create(test_allocator, password, null);
+    defer recipient.destroy();
+
+    var array = ArrayList(u8).init(test_allocator);
+    errdefer array.deinit();
+    var encryptor = try AgeEncryptor.encryptInit(test_allocator);
+    try encryptor.addRecipient(recipient);
+    try encryptor.finalizeRecipients(array.writer().any());
+    try encryptor.update(test_str[0..]);
+    try encryptor.finish();
+
+    const identity = try scrypt.ScryptIdentity.create(test_allocator, password);
+    defer identity.destroy();
+
+    const owned = try array.toOwnedSlice();
+    defer test_allocator.free(owned);
+    var encrypt_file = std.io.fixedBufferStream(owned);
+
+    var decryptor = try AgeDecryptor.decryptInit(test_allocator, encrypt_file.reader().any());
+    try decryptor.addIdentity(identity);
+    try decryptor.finalizeIdentities();
+    const got = try decryptor.get();
+
+    try testing.expectEqualStrings(test_str, got);
+}
+
+test "encrypt/decrypt file" {
+    const testing = std.testing;
+    const test_allocator = std.testing.allocator;
+
+    const test_str = "Hello World!";
+    const public_key = "age17mt2y8v5f3chc5dv22jz4unfcqey37v9jtxlcq834hx5cytjvp6s9txfk0";
+    const recipient = try x25519.X25519Recipient.parse(test_allocator, public_key);
+
+    var array = ArrayList(u8).init(test_allocator);
+    errdefer array.deinit();
+
+    var encryptor = try AgeEncryptor.encryptInit(test_allocator);
+    try encryptor.addRecipient(recipient);
+    try encryptor.finalizeRecipients(array.writer().any());
+    try encryptor.update(test_str[0..]);
+    try encryptor.finish();
+
+    const secret_key = "AGE-SECRET-KEY-1QGN768HAM3H3SDL9WRZZYNP9JESEMEQFLFSJYLZE5A52U55WM2GQH8PMPW";
+    const identity = try x25519.X25519Identity.parse(test_allocator, secret_key);
+
+    const owned = try array.toOwnedSlice();
+    defer test_allocator.free(owned);
+    var encrypt_file = std.io.fixedBufferStream(owned);
+
+    var decryptor = try AgeDecryptor.decryptInit(test_allocator, encrypt_file.reader().any());
+    try decryptor.addIdentity(identity);
+    try decryptor.finalizeIdentities();
+    const got = try decryptor.get();
+
+    try testing.expectEqualStrings(test_str, got);
 }

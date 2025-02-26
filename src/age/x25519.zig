@@ -238,39 +238,3 @@ test "Identity parsing" {
     try testing.expectEqualStrings(pub_key, expected_pub_key);
     try testing.expectEqualStrings(sec_key, expected_sec_key);
 }
-
-test "encrypt/decrypt file" {
-    const AgeEncryptor = @import("age.zig").AgeEncryptor;
-    const AgeDecryptor = @import("age.zig").AgeDecryptor;
-
-    const test_str = "Hello World!";
-    const public_key = "age17mt2y8v5f3chc5dv22jz4unfcqey37v9jtxlcq834hx5cytjvp6s9txfk0";
-    const recipient = try X25519Recipient.parse(test_allocator, public_key);
-    var array = ArrayList(u8).init(test_allocator);
-    errdefer array.deinit();
-    var encryptor = try AgeEncryptor.encryptInit(test_allocator);
-    try encryptor.addRecipient(recipient);
-    try encryptor.finalizeRecipients(array.writer().any());
-    try encryptor.update(test_str[0..]);
-    try encryptor.finish();
-
-    const secret_key = "AGE-SECRET-KEY-1QGN768HAM3H3SDL9WRZZYNP9JESEMEQFLFSJYLZE5A52U55WM2GQH8PMPW";
-    const identity = try X25519Identity.parse(test_allocator, secret_key);
-
-    const owned = try array.toOwnedSlice();
-    defer test_allocator.free(owned);
-    var encrypt_file = std.io.fixedBufferStream(owned);
-
-    var decryptarray = ArrayList(u8).init(test_allocator);
-    errdefer decryptarray.deinit();
-    try AgeDecryptor.decryptFromReaderToWriter(
-        test_allocator,
-        &.{identity},
-        decryptarray.writer().any(),
-        encrypt_file.reader().any(),
-    );
-
-    const got = try decryptarray.toOwnedSlice();
-    defer test_allocator.free(got);
-    try testing.expectEqualStrings(test_str, got);
-}
