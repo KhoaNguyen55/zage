@@ -76,7 +76,7 @@ pub const AgeEncryptor = struct {
     /// Must use `AgeEncryptor.finish()` to complete the encryption process.
     pub fn encryptInit(
         allocator: Allocator,
-    ) anyerror!AgeEncryptor {
+    ) AgeEncryptor {
         var file_key: [file_key_size]u8 = undefined;
         random.bytes(&file_key);
 
@@ -95,13 +95,13 @@ pub const AgeEncryptor = struct {
     }
 
     /// Use `AgeEncryptor.finalizeRecipients()` after all recipients have been added.
-    pub fn addRecipient(self: *AgeEncryptor, recipient: anytype) !void {
+    pub fn addRecipient(self: *AgeEncryptor, recipient: anytype) anyerror!void {
         errdefer self.header.destroy();
         try self.header.update(recipient, self.file_key);
     }
 
     /// Finalizes all intended recipients for the encrypted data and write header to `dest`
-    pub fn finalizeRecipients(self: *AgeEncryptor, dest: std.io.AnyWriter) !void {
+    pub fn finalizeRecipients(self: *AgeEncryptor, dest: std.io.AnyWriter) anyerror!void {
         defer self.header.destroy();
         try self.header.final(self.file_key);
 
@@ -186,7 +186,7 @@ pub const AgeDecryptor = struct {
 
     /// Initialize the decryption process.
     /// Use `AgeDecryptor.addIdentity()` and `AgeDecryptor.finalizeIdentities()` before `AgeDecryptor.get()`
-    pub fn decryptInit(allocator: Allocator, source: std.io.AnyReader) anyerror!AgeDecryptor {
+    pub fn decryptInit(allocator: Allocator, source: std.io.AnyReader) format.Error!AgeDecryptor {
         const header = try Header.parse(allocator, source);
         errdefer header.destroy();
 
@@ -204,7 +204,7 @@ pub const AgeDecryptor = struct {
     }
 
     /// Use `AgeDecryptor.finalizeIdentities()` after all identity have been added.
-    pub fn addIdentity(self: *AgeDecryptor, identity: anytype) anyerror!void {
+    pub fn addIdentity(self: *AgeDecryptor, identity: anytype) HeaderError!void {
         errdefer self.header.destroy();
         if (self.file_key == null) {
             self.file_key = identity.unwrap(self.header.recipients.items) catch {
@@ -326,7 +326,7 @@ test "Scrypt encrypt/decrypt file" {
 
     var array = ArrayList(u8).init(test_allocator);
     errdefer array.deinit();
-    var encryptor = try AgeEncryptor.encryptInit(test_allocator);
+    var encryptor = AgeEncryptor.encryptInit(test_allocator);
     try encryptor.addRecipient(recipient);
     try encryptor.finalizeRecipients(array.writer().any());
     try encryptor.update(test_str[0..]);
@@ -358,7 +358,7 @@ test "encrypt/decrypt file" {
     var array = ArrayList(u8).init(test_allocator);
     errdefer array.deinit();
 
-    var encryptor = try AgeEncryptor.encryptInit(test_allocator);
+    var encryptor = AgeEncryptor.encryptInit(test_allocator);
     try encryptor.addRecipient(recipient);
     try encryptor.finalizeRecipients(array.writer().any());
     try encryptor.update(test_str[0..]);

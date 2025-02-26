@@ -306,7 +306,7 @@ pub const Header = struct {
     }
 
     /// Finalize a partial header
-    pub fn final(self: *Header, file_key: [file_key_size]u8) anyerror!void {
+    pub fn final(self: *Header, file_key: [file_key_size]u8) Allocator.Error!void {
         const header_no_mac = try std.fmt.allocPrint(self.allocator, "{nomac}", .{self});
         defer self.allocator.free(header_no_mac);
 
