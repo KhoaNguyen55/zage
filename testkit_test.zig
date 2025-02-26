@@ -44,7 +44,7 @@ const Vector = struct {
         }
         if (self.passphrase) |passphrase| {
             for (passphrase.items) |p| {
-                p.any().destroy();
+                p.destroy();
             }
             passphrase.deinit();
         }
@@ -186,33 +186,31 @@ fn checkHash(values: []const u8, hash: []const u8) !void {
 
 fn testVector(allocator: Allocator, test_vector: Vector) !void {
     var buffer = std.io.fixedBufferStream(test_vector.file);
+
     var decrypted = ArrayList(u8).init(allocator);
     defer decrypted.deinit();
 
-    var any_identities = try allocator.alloc(age.AnyIdentity, 0);
-    defer allocator.free(any_identities);
+    const decrypt_error = blk: {
+        var decryptor = age.AgeDecryptor.decryptInit(allocator, buffer.reader().any()) catch |err| break :blk err;
 
-    if (test_vector.identities) |identities| {
-        any_identities = try allocator.realloc(any_identities, identities.items.len);
-        for (identities.items, 0..) |x25519_identity, i| {
-            any_identities[i] = x25519_identity.any();
+        if (test_vector.identities) |identities| {
+            for (identities.items) |identity| {
+                decryptor.addIdentity(identity) catch |err| break :blk err;
+            }
         }
-    }
 
-    if (test_vector.passphrase) |pass| {
-        const first_len = any_identities.len;
-        any_identities = try allocator.realloc(any_identities, first_len + pass.items.len);
-        for (pass.items, first_len..) |scrypt_identity, i| {
-            any_identities[i] = scrypt_identity.any();
+        if (test_vector.passphrase) |pass| {
+            for (pass.items) |identity| {
+                decryptor.addIdentity(identity) catch |err| break :blk err;
+            }
         }
-    }
 
-    const decrypt_error = age.AgeDecryptor.decryptFromReaderToWriter(
-        allocator,
-        any_identities,
-        decrypted.writer().any(),
-        buffer.reader().any(),
-    );
+        decryptor.finalizeIdentities() catch |err| break :blk err;
+
+        while (decryptor.next() catch |err| break :blk err) |value| {
+            try decrypted.appendSlice(value);
+        }
+    };
 
     switch (test_vector.expect) {
         .Success => {
@@ -253,8 +251,9 @@ test "testkit" {
             continue;
         }
 
-        testVector(test_alloctor, vector) catch {
+        testVector(test_alloctor, vector) catch |err| {
             failed = true;
+            std.debug.print("Error: {s}\n", .{@errorName(err)});
             std.debug.print("Failed test: {s}\n\n", .{vector.test_file_name});
             std.debug.print("++++++++++++++++++++++++++++++++++++++++\n", .{});
         };
