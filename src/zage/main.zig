@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 const Allocator = std.mem.Allocator;
+const ArrayList = std.ArrayList;
 
 const clap = @import("clap");
 const age = @import("age");
@@ -29,9 +30,9 @@ pub fn main() !void {
         \\-h, --help                        Display this help and exit.
         \\-e, --encrypt                     Encrypt input to output, default.
         \\-d, --decrypt                     Decrypt input to output.
-        \\-i, --identity-file <file>...      Encrypt/Decrypt using identity at file, can be repeated.
+        \\-i, --identity-file <file>...     Encrypt/Decrypt using identity at file, can be repeated.
         \\-r, --recipient <string>...       Encrypt to recipient, can be repeated.
-        \\-R, --recipient-file <file>...     Encrypt to recipients at file, can be repeated.
+        \\-R, --recipient-file <file>...    Encrypt to recipients at file, can be repeated.
         \\-p, --passphrase                  Encrypt using passphrase.
         \\-o, --output <file>               Path to output file, default to stdout.
         \\<file>                            Path to file to encrypt or decrypt.
@@ -74,7 +75,7 @@ pub fn main() !void {
 
     const output_file = blk: {
         if (args.output) |path| {
-            break :blk std.fs.cwd().openFile(path, .{ .mode = .write_only }) catch |err| {
+            break :blk std.fs.cwd().createFile(path, .{}) catch |err| {
                 fatal("Can't open file '{s}': {s}", .{ path, @errorName(err) });
             };
         } else {
@@ -96,16 +97,22 @@ pub fn main() !void {
     };
 
     if (args.encrypt != 0 and args.decrypt != 0) {
-        std.debug.print("Can't encrypt and decrypt at the same time.", .{});
-        return;
+        fatal("Can't encrypt and decrypt at the same time.", .{});
     }
 
     if (args.passphrase != 0 and (args.recipient.len != 0 or
         args.@"recipient-file".len != 0 or
-        args.@"recipient-file".len != 0))
+        args.@"identity-file".len != 0))
     {
-        std.debug.print("Passphrase can not be use in conjuction with recipient or identity.", .{});
-        return;
+        fatal("Passphrase can not be use in conjuction with recipient or identity.", .{});
+    }
+
+    if (args.passphrase == 0 and
+        args.recipient.len == 0 and
+        args.@"recipient-file".len == 0 and
+        args.@"identity-file".len == 0)
+    {
+        fatal("Missing identity, recipient or passphrase.", .{});
     }
 
     if (args.decrypt != 0) {
@@ -161,31 +168,32 @@ fn handleEncryption(allocator: Allocator, args: anytype, input: std.fs.File, out
     var encryptor = age.AgeEncryptor.encryptInit(allocator);
 
     if (args.@"recipient-file".len != 0) {
-        fatal("Not implemented.", .{});
+        try addRecipientFromFiles(allocator, &encryptor, args.@"recipient-file");
     }
 
     if (args.recipient.len != 0) {
         for (args.recipient) |str| {
-            const identity = age.x25519.X25519Recipient.parse(allocator, str) catch |err| {
-                fatal("Failed to create recipient '{s}': {s}", .{ str, @errorName(err) });
-            };
-
-            try encryptor.addRecipient(identity);
+            try addRecipientFromString(allocator, &encryptor, str);
         }
-    } else if (args.passphrase != 0) {
+    }
+
+    if (args.passphrase != 0) {
         const passphrase = try getPassphrase(allocator);
         defer allocator.free(passphrase);
 
         std.debug.print("\nEncrypting using passphrase, this might take a while...\n", .{});
 
-        const identity = age.scrypt.ScryptRecipient.create(allocator, passphrase, null) catch |err| {
-            fatal("Failed to create scrypt recipient: {s}", .{@errorName(err)});
+        // since passphrase lives in the same scope
+        // create Recipient directly instead of using Create(),
+        // prevent a heap allocation, using it directly does feel dirty
+        // might change the API, or make a seperate one that don't allocate anything instead
+        const identity = age.scrypt.ScryptRecipient{
+            .allocator = allocator,
+            .passphrase = passphrase,
+            .work_factor = 18,
         };
-        defer identity.destroy();
 
         try encryptor.addRecipient(identity);
-    } else {
-        fatal("Missing identity, recipient or passphrase.", .{});
     }
 
     const buffer = try input.readToEndAlloc(allocator, std.math.maxInt(usize));
@@ -194,4 +202,55 @@ fn handleEncryption(allocator: Allocator, args: anytype, input: std.fs.File, out
     try encryptor.finalizeRecipients(output);
     try encryptor.update(buffer);
     try encryptor.finish();
+}
+
+fn parseIdentity(identity: []const u8) !void {
+    if (std.mem.startsWith(u8, identity, "AGE-SECRET-KEY-")) {
+        //
+    } else if (std.mem.startsWith(u8, identity, "AGE-PLUGIN-")) {
+        //
+    }
+}
+
+fn addRecipientFromString(allocator: Allocator, encryptor: *age.AgeEncryptor, recipient: []const u8) !void {
+    if (std.mem.startsWith(u8, recipient, "age1")) {
+        const index = std.mem.indexOfScalarPos(u8, recipient, 4, '1');
+        if (index) |idx| {
+            const plugin_name = recipient[4..idx];
+            _ = plugin_name;
+            fatal("Support for plugins is not implemented", .{});
+        } else {
+            const x25519_recipient = try age.x25519.X25519Recipient.parse(allocator, recipient);
+            try encryptor.*.addRecipient(x25519_recipient);
+        }
+    } else {
+        fatal("Unrecognized recipient: {s}", .{recipient});
+    }
+}
+
+fn addRecipientFromFiles(allocator: Allocator, encryptor: *age.AgeEncryptor, paths: []const []const u8) !void {
+    var recipient_string = ArrayList(u8).init(allocator);
+    defer recipient_string.deinit();
+
+    for (paths) |path| {
+        const file = std.fs.cwd().openFile(path, .{}) catch |err| {
+            fatal("Can't open recipient files at '{s}': {s}", .{ path, @errorName(err) });
+        };
+        defer file.close();
+
+        while (true) {
+            file.reader().streamUntilDelimiter(recipient_string.writer(), '\n', null) catch |err| {
+                switch (err) {
+                    error.EndOfStream => break,
+                    else => return err,
+                }
+            };
+
+            if (std.mem.startsWith(u8, recipient_string.items, "#")) continue;
+
+            const trimmed = std.mem.trimRight(u8, recipient_string.items, "\r");
+            try addRecipientFromString(allocator, encryptor, trimmed);
+            recipient_string.clearRetainingCapacity();
+        }
+    }
 }
