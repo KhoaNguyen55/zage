@@ -155,7 +155,7 @@ fn getPassphrase(allocator: Allocator) ![]const u8 {
 
     var passphrase = std.ArrayList(u8).init(allocator);
 
-    std.debug.print("Passphrase: ", .{});
+    try stdin.writeAll("Passphrase: ");
 
     try changeInputEcho(false);
     try stdin.reader().streamUntilDelimiter(passphrase.writer(), '\n', null);
