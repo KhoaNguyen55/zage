@@ -248,6 +248,7 @@ fn addRecipientFromFiles(allocator: Allocator, encryptor: *age.AgeEncryptor, pat
                 }
             };
 
+            if (recipient_string.items.len == 0) continue;
             if (std.mem.startsWith(u8, recipient_string.items, "#")) continue;
 
             const trimmed = std.mem.trimRight(u8, recipient_string.items, "\r");
