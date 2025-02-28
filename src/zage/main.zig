@@ -118,6 +118,15 @@ pub fn main() !void {
         fatal("Passphrase can not be use in conjuction with recipient or identity.", .{});
     }
 
+    if (args.decrypt == 0 and
+        args.passphrase == 0 and
+        args.recipient.len == 0 and
+        args.@"recipient-file".len == 0 and
+        args.@"identity-file".len == 0)
+    {
+        fatal("Missing identity, recipient or passphrase.", .{});
+    }
+
     if (args.decrypt != 0) {
         handleDecryption(allocator, args, input, output) catch |err| {
             fatal("Can't decrypt file: {s}", .{@errorName(err)});
