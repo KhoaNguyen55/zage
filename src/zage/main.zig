@@ -12,7 +12,9 @@ const assert = std.debug.assert;
 
 fn printUsage() void {
     std.debug.print(
-        \\Usage: zage [-h] [-e | -d] [-i <file>...] [-r <string>...] [-R <file>...] [-p] [-o <file>] <file>
+        \\Usage:
+        \\  zage [--encrypt] (-i <file>... -r <string>... -R <file>... | -p) -o <file> <file>
+        \\  zage [--decrypt] (-i <file>... -r <string>... -R <file>...) [-o <file> --force] <file>
         \\
     , .{});
 }
@@ -35,7 +37,7 @@ pub fn main() !void {
         \\-r, --recipient <string>...       Encrypt to recipient, can be repeated.
         \\-R, --recipient-file <file>...    Encrypt to recipients at file, can be repeated.
         \\-p, --passphrase                  Encrypt using passphrase.
-        \\-o, --output <file>               Path to output file, default to stdout.
+        \\-o, --output <file>               Path to output file, default to stdout when decrypting.
         \\<file>                            Path to file to encrypt or decrypt.
         \\
     );
