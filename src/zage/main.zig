@@ -169,6 +169,10 @@ fn getPassphrase(allocator: Allocator) ![]const u8 {
 fn handleEncryption(allocator: Allocator, args: anytype, input: std.fs.File, output: std.io.AnyWriter) !void {
     var encryptor = age.AgeEncryptor.encryptInit(allocator);
 
+    if (args.@"identity-file".len != 0) {
+        try addIdentityFromFiles(allocator, .{ .encryptor = &encryptor }, args.@"identity-file");
+    }
+
     if (args.@"recipient-file".len != 0) {
         try addRecipientFromFiles(allocator, &encryptor, args.@"recipient-file");
     }
@@ -206,11 +210,77 @@ fn handleEncryption(allocator: Allocator, args: anytype, input: std.fs.File, out
     try encryptor.finish();
 }
 
-fn parseIdentity(identity: []const u8) !void {
+const AgeProcessor = union(enum) {
+    encryptor: *age.AgeEncryptor,
+    decryptor: *age.AgeDecryptor,
+};
+
+fn addIdentityFromString(allocator: Allocator, processor: AgeProcessor, identity: []const u8) !void {
     if (std.mem.startsWith(u8, identity, "AGE-SECRET-KEY-")) {
-        //
+        const x25519_identity = try age.x25519.X25519Identity.parse(allocator, identity);
+        switch (processor) {
+            .encryptor => |encryptor| {
+                try encryptor.*.addRecipient(x25519_identity.recipient());
+            },
+            .decryptor => |decryptor| {
+                try decryptor.*.addIdentity(x25519_identity);
+            },
+        }
     } else if (std.mem.startsWith(u8, identity, "AGE-PLUGIN-")) {
-        //
+        const index = std.mem.indexOfScalarPos(u8, identity, 11, '-');
+        if (index) |idx| {
+            const plugin_name = identity[11..idx];
+            _ = plugin_name;
+            fatal("Support for plugins is not implemented", .{});
+        } else {
+            return error.UnrecognizedIdentity;
+        }
+    } else {
+        return error.UnrecognizedIdentity;
+    }
+}
+
+fn addIdentityFromFiles(allocator: Allocator, processor: AgeProcessor, paths: []const []const u8) !void {
+    var identity_string = ArrayList(u8).init(allocator);
+    defer identity_string.deinit();
+
+    for (paths) |path| {
+        const file = std.fs.cwd().openFile(path, .{}) catch |err| {
+            fatal("Can't open identity files at '{s}': {s}", .{ path, @errorName(err) });
+        };
+        defer file.close();
+
+        std.log.debug("Reading identity file at {s}", .{path});
+
+        var line_num: usize = 1;
+        while (true) : ({
+            line_num += 1;
+            identity_string.clearRetainingCapacity();
+        }) {
+            file.reader().streamUntilDelimiter(identity_string.writer(), '\n', null) catch |err| {
+                switch (err) {
+                    error.EndOfStream => break,
+                    else => return err,
+                }
+            };
+
+            if (identity_string.items.len == 0) {
+                std.log.debug("Skipping empty string at line: {}", .{line_num});
+                continue;
+            }
+            if (std.mem.startsWith(u8, identity_string.items, "#")) {
+                std.log.debug("Skipping comment at line: {}", .{line_num});
+                continue;
+            }
+
+            std.log.debug("Processing identity string at line: {}", .{line_num});
+
+            const trimmed = std.mem.trimRight(u8, identity_string.items, "\r");
+            addIdentityFromString(allocator, processor, trimmed) catch |err| switch (err) {
+                error.UnrecognizedIdentity => fatal("Unrecognized identity in file: '{s}' at line: '{}'", .{ path, line_num }),
+                else => return err,
+            };
+        }
     }
 }
 
