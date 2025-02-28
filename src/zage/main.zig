@@ -116,14 +116,6 @@ pub fn main() !void {
         fatal("Passphrase can not be use in conjuction with recipient or identity.", .{});
     }
 
-    if (args.passphrase == 0 and
-        args.recipient.len == 0 and
-        args.@"recipient-file".len == 0 and
-        args.@"identity-file".len == 0)
-    {
-        fatal("Missing identity, recipient or passphrase.", .{});
-    }
-
     if (args.decrypt != 0) {
         try handleDecryption(allocator, args, input, output);
     } else {
@@ -176,13 +168,38 @@ fn getPassphrase(allocator: Allocator) ![]const u8 {
 fn handleDecryption(allocator: Allocator, args: anytype, input: std.fs.File, output: std.io.AnyWriter) !void {
     var decryptor = try age.AgeDecryptor.decryptInit(allocator, input.reader().any());
 
-    if (args.@"identity-file".len != 0) {
+    const expect_passphrase = blk: {
+        if (decryptor.header.recipients.items.len != 1) break :blk false;
+        break :blk std.mem.eql(u8, decryptor.header.recipients.items[0].type, "scrypt");
+    };
+
+    if (expect_passphrase) {
+        if (args.passphrase != 0) {
+            std.debug.print("Passphrase protected files are automatically detected.\n", .{});
+        }
+
+        const passphrase = try getPassphrase(allocator);
+        defer allocator.free(passphrase);
+
+        std.debug.print("\nDecrypting using passphrase, this might take a while...\n", .{});
+
+        // same concerns as Recipient over in the encryption process
+        const identity = age.scrypt.ScryptIdentity{
+            .allocator = allocator,
+            .passphrase = passphrase,
+        };
+
+        try decryptor.addIdentity(identity);
+    } else if (args.@"identity-file".len != 0) {
         try addIdentityFromFiles(allocator, .{ .decryptor = &decryptor }, args.@"identity-file");
     }
 
-    //TODO: detect passphrase
-
-    try decryptor.finalizeIdentities();
+    decryptor.finalizeIdentities() catch |err| switch (err) {
+        age.HeaderError.NoValidIdentities => {
+            if (expect_passphrase) fatal("Wrong password", .{}) else return err;
+        },
+        else => return err,
+    };
 
     while (try decryptor.next()) |data| {
         try output.writeAll(data);
