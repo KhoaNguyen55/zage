@@ -118,7 +118,7 @@ pub fn main() !void {
     }
 
     if (args.decrypt != 0) {
-        fatal("Not implemented.", .{});
+        try handleDecryption(allocator, args, input, output);
     } else {
         try handleEncryption(allocator, args, input, output);
     }
@@ -164,6 +164,22 @@ fn getPassphrase(allocator: Allocator) ![]const u8 {
     try changeInputEcho(true);
 
     return passphrase.toOwnedSlice();
+}
+
+fn handleDecryption(allocator: Allocator, args: anytype, input: std.fs.File, output: std.io.AnyWriter) !void {
+    var decryptor = try age.AgeDecryptor.decryptInit(allocator, input.reader().any());
+
+    if (args.@"identity-file".len != 0) {
+        try addIdentityFromFiles(allocator, .{ .decryptor = &decryptor }, args.@"identity-file");
+    }
+
+    //TODO: detect passphrase
+
+    try decryptor.finalizeIdentities();
+
+    while (try decryptor.next()) |data| {
+        try output.writeAll(data);
+    }
 }
 
 fn handleEncryption(allocator: Allocator, args: anytype, input: std.fs.File, output: std.io.AnyWriter) !void {
