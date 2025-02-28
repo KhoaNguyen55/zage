@@ -82,7 +82,8 @@ pub const Stanza = struct {
             }
         }
 
-        assert(std.mem.eql(u8, args[0], stanza_prefix[0..2]));
+        if (!std.mem.startsWith(u8, args[0], stanza_prefix[0..2])) return Error.MalformedHeader;
+
         var body = ArrayList(u8).init(alloc);
         var final_len: usize = stanza_columns;
         while (lines.next()) |line| {
@@ -358,7 +359,7 @@ pub const Header = struct {
     ) Error![mac_length]u8 {
         var args = std.mem.splitScalar(u8, input, ' ');
 
-        assert(std.mem.eql(u8, args.first()[0..3], mac_prefix));
+        if (!std.mem.startsWith(u8, args.first(), mac_prefix)) return Error.MalformedHeader;
 
         if (args.next()) |mac_line| {
             if (args.next() != null or mac_line.len != decoded_mac_length) {
@@ -382,7 +383,7 @@ pub const Header = struct {
         /// Version string, must start with `age` and ends without a newline.
         input: []const u8,
     ) Error!void {
-        assert(std.mem.eql(u8, input[0..3], version_prefix));
+        if (!std.mem.startsWith(u8, input, version_prefix)) return Error.MalformedHeader;
 
         if (input.len < version_line.len) {
             return Error.MalformedHeader;
