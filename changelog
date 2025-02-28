@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## Added
+- Add API to convert Scrypt and X25519 Identitiy to Recipient
+- Zage: Output to file
+- Zage: Parsing Recipient files for encrypting
+- Zage: Add decryption functionality, with identity files or passphrase
+
+## Changed:
+- Zage: Stop output binary to stdout
+
+## Fixed
+- Zage: Use new API so it is now working correctly
+
 ## [0.4.0] - 2025-02-25
 
 ## Added
