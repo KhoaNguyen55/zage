@@ -30,6 +30,7 @@ pub fn main() !void {
         \\-h, --help                        Display this help and exit.
         \\-e, --encrypt                     Encrypt input to output, default.
         \\-d, --decrypt                     Decrypt input to output.
+        \\    --force                       Override output file when decrypting.
         \\-i, --identity-file <file>...     Encrypt/Decrypt using identity at file, can be repeated.
         \\-r, --recipient <string>...       Encrypt to recipient, can be repeated.
         \\-R, --recipient-file <file>...    Encrypt to recipients at file, can be repeated.
@@ -75,8 +76,14 @@ pub fn main() !void {
 
     const output_file = blk: {
         if (args.output) |path| {
-            break :blk std.fs.cwd().createFile(path, .{}) catch |err| {
-                fatal("Can't open file '{s}': {s}", .{ path, @errorName(err) });
+            var opt: std.fs.File.CreateFlags = .{};
+            if (args.decrypt != 0 and args.force == 0) {
+                opt.exclusive = true;
+            }
+
+            break :blk std.fs.cwd().createFile(path, opt) catch |err| switch (err) {
+                error.PathAlreadyExists => fatal("Decrypting won't override existing file, use --force to override", .{}),
+                else => fatal("Can't open file '{s}': {s}", .{ path, @errorName(err) }),
             };
         } else {
             break :blk null;
