@@ -76,9 +76,9 @@ pub fn main() !void {
     };
     defer input.close();
 
-    const output_file = blk: {
+    const output = blk: {
         if (args.output) |path| {
-            var opt: std.fs.File.CreateFlags = .{};
+            var opt: std.fs.File.CreateFlags = .{ .truncate = false };
             if (args.decrypt != 0 and args.force == 0) {
                 opt.exclusive = true;
             }
@@ -87,25 +87,15 @@ pub fn main() !void {
                 error.PathAlreadyExists => fatal("Decrypting won't override existing file, use --force to override", .{}),
                 else => fatal("Can't open file '{s}': {s}", .{ path, @errorName(err) }),
             };
-        } else {
-            break :blk null;
-        }
-    };
-    defer {
-        if (output_file) |file| {
-            file.close();
-        }
-    }
-
-    const output = blk: {
-        if (output_file) |file| {
-            break :blk file.writer().any();
         } else if (args.decrypt != 0) {
-            break :blk std.io.getStdOut().writer().any();
+            break :blk std.io.getStdOut();
         } else {
             fatal("Won't output binary to stdout, use -o <file>", .{});
         }
     };
+    defer {
+        output.close();
+    }
 
     if (args.encrypt != 0 and args.decrypt != 0) {
         fatal("Can't encrypt and decrypt at the same time.", .{});
@@ -180,7 +170,7 @@ fn getPassphrase(allocator: Allocator) ![]const u8 {
     return passphrase.toOwnedSlice();
 }
 
-fn handleDecryption(allocator: Allocator, args: anytype, input: std.fs.File, output: std.io.AnyWriter) !void {
+fn handleDecryption(allocator: Allocator, args: anytype, input: std.fs.File, output: std.fs.File) !void {
     var decryptor = try age.AgeDecryptor.decryptInit(allocator, input.reader().any());
 
     const expect_passphrase = blk: {
@@ -216,12 +206,14 @@ fn handleDecryption(allocator: Allocator, args: anytype, input: std.fs.File, out
         else => return err,
     };
 
+    if (!output.isTty()) try output.setEndPos(0);
+
     while (try decryptor.next()) |data| {
         try output.writeAll(data);
     }
 }
 
-fn handleEncryption(allocator: Allocator, args: anytype, input: std.fs.File, output: std.io.AnyWriter) !void {
+fn handleEncryption(allocator: Allocator, args: anytype, input: std.fs.File, output: std.fs.File) !void {
     var encryptor = age.AgeEncryptor.encryptInit(allocator);
 
     if (args.@"identity-file".len != 0) {
@@ -260,7 +252,9 @@ fn handleEncryption(allocator: Allocator, args: anytype, input: std.fs.File, out
     const buffer = try input.readToEndAlloc(allocator, std.math.maxInt(usize));
     defer allocator.free(buffer);
 
-    try encryptor.finalizeRecipients(output);
+    try output.setEndPos(0);
+
+    try encryptor.finalizeRecipients(output.writer().any());
     try encryptor.update(buffer);
     try encryptor.finish();
 }
