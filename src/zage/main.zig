@@ -91,8 +91,10 @@ pub fn main() !void {
     const output = blk: {
         if (output_file) |file| {
             break :blk file.writer().any();
-        } else {
+        } else if (args.decrypt != 0) {
             break :blk std.io.getStdOut().writer().any();
+        } else {
+            fatal("Won't output binary to stdout, use -o <file>", .{});
         }
     };
 
