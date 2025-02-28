@@ -117,9 +117,13 @@ pub fn main() !void {
     }
 
     if (args.decrypt != 0) {
-        try handleDecryption(allocator, args, input, output);
+        handleDecryption(allocator, args, input, output) catch |err| {
+            fatal("Can't decrypt file: {s}", .{@errorName(err)});
+        };
     } else {
-        try handleEncryption(allocator, args, input, output);
+        handleEncryption(allocator, args, input, output) catch |err| {
+            fatal("Can't encrypt file: {s}", .{@errorName(err)});
+        };
     }
 }
 
@@ -173,11 +177,11 @@ fn handleDecryption(allocator: Allocator, args: anytype, input: std.fs.File, out
         break :blk std.mem.eql(u8, decryptor.header.recipients.items[0].type, "scrypt");
     };
 
-    if (expect_passphrase) {
-        if (args.passphrase != 0) {
-            std.debug.print("Passphrase protected files are automatically detected.\n", .{});
-        }
+    if (args.passphrase != 0) {
+        std.debug.print("For decryption, passphrase protected files are automatically detected, the -p flag are ignored.\n", .{});
+    }
 
+    if (expect_passphrase) {
         const passphrase = try getPassphrase(allocator);
         defer allocator.free(passphrase);
 
@@ -196,7 +200,7 @@ fn handleDecryption(allocator: Allocator, args: anytype, input: std.fs.File, out
 
     decryptor.finalizeIdentities() catch |err| switch (err) {
         age.HeaderError.NoValidIdentities => {
-            if (expect_passphrase) fatal("Wrong password", .{}) else return err;
+            if (expect_passphrase) return error.WrongPassphrase else return err;
         },
         else => return err,
     };
