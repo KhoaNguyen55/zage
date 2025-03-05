@@ -255,12 +255,8 @@ pub const Header = struct {
             };
 
             if (parsing_stanzas) {
-                if (in_len + 3 > input.items.len) {
-                    continue;
-                }
-
-                if (std.mem.eql(u8, input.items[in_len .. in_len + 3], stanza_prefix) or
-                    std.mem.eql(u8, input.items[in_len .. in_len + 3], mac_prefix))
+                if (std.mem.startsWith(u8, input.items[in_len..], stanza_prefix) or
+                    std.mem.startsWith(u8, input.items[in_len..], mac_prefix))
                 {
                     parsing_stanzas = false;
                     const stanza = try Stanza.parse(allocator, input.items[start_idx..in_len]);
@@ -268,10 +264,10 @@ pub const Header = struct {
                     start_idx = in_len;
                 }
             }
-            if (std.mem.eql(u8, input.items[start_idx .. start_idx + 3], stanza_prefix)) {
+            if (std.mem.startsWith(u8, input.items[start_idx..], stanza_prefix)) {
                 parsing_stanzas = true;
             }
-            if (std.mem.eql(u8, input.items[in_len .. in_len + 3], mac_prefix)) {
+            if (std.mem.startsWith(u8, input.items[in_len..], mac_prefix)) {
                 break;
             }
             try input.append('\n');
