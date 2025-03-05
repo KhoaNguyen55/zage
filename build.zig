@@ -35,4 +35,14 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "run tests");
     test_step.dependOn(&run_unit_test.step);
     test_step.dependOn(&run_testkit.step);
+
+    const lldb = b.addSystemCommand(&.{
+        "lldb",
+        "--",
+    });
+
+    lldb.addArtifactArg(lib_unit_tests);
+
+    const lldb_step = b.step("debug", "debug unit tests with lldb");
+    lldb_step.dependOn(&lldb.step);
 }
