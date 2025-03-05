@@ -12,12 +12,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Zage: Output to file
 - Zage: Parsing Recipient files for encrypting
 - Zage: Add decryption functionality, with identity files or passphrase
+- Add parseFromReader api to Stanza
 
 ## Changed:
 - Zage: Stop output binary to stdout
 
 ## Fixed
 - Zage: Use new API so it is now working correctly
+- Decryption wasn't working properly in ReleaseSafe build because of
+accidental use of undefined
 
 ## [0.4.0] - 2025-02-25
 
