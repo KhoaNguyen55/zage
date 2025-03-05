@@ -4,17 +4,31 @@ The format specification is at [age-encryption.org/v1](https://age-encryption.or
 
 # Installation
 
-TODO
+Download executable from [here](https://github.com/KhoaNguyen55/zage/releases).
 
-## Features
+## Build from source
 
-TODO
+Clone the repo: `git clone https://github.com/KhoaNguyen55/zage.git`
 
-## Usage
+Use zig build system: `zig build -Dbuild-cli --release=safe`
 
-TODO
+# Usage
 
-## Zig library
+For complete usage run `zage --help`
+
+## Encrypt
+
+With passphrase: `zage -p -o <output_file> <input_file>`
+
+With recipient: `zage -r age1ylsp6apgw0e9526s5tgaqj70qerc0286hl95quzg2jq5r30ewqxquaxhpp -o <output_file> <input_file>`
+
+## Decrypt 
+
+With passphrase: `zage -d <input_file>`
+
+With recipient: `zage -d -i private_key <input_file>`
+
+# Zig library
 
 [Documentation](https://khoanguyen55.github.io/zage/)
 
@@ -35,3 +49,9 @@ const age = b.dependency("age", .{
 });
 exe.root_module.addImport("age", age.module("age"));
 ```
+
+# Contributes
+
+Report bugs at https://github.com/KhoaNguyen55/zage/issues
+
+Contributing: TODO
