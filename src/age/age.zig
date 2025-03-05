@@ -198,7 +198,7 @@ pub const AgeDecryptor = struct {
             .last = false,
             .src = source,
             .header = header,
-            .file_key = undefined,
+            .file_key = null,
             .allocator = allocator,
         };
     }
