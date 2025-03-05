@@ -188,7 +188,9 @@ fn handleDecryption(allocator: Allocator, args: anytype, input: std.fs.File, out
 
         std.debug.print("\nDecrypting using passphrase, this might take a while...\n", .{});
 
-        // same concerns as Recipient over in the encryption process
+        // since passphrase lives in the same scope
+        // create Identity directly instead of using Create(),
+        // prevent a heap allocation
         const identity = age.scrypt.ScryptIdentity{
             .allocator = allocator,
             .passphrase = passphrase,
@@ -238,8 +240,7 @@ fn handleEncryption(allocator: Allocator, args: anytype, input: std.fs.File, out
 
         // since passphrase lives in the same scope
         // create Recipient directly instead of using Create(),
-        // prevent a heap allocation, using it directly does feel dirty
-        // might change the API, or make a seperate one that don't allocate anything instead
+        // prevent a heap allocation
         const identity = age.scrypt.ScryptRecipient{
             .allocator = allocator,
             .passphrase = passphrase,
