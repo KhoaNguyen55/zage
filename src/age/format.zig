@@ -56,6 +56,7 @@ pub const Stanza = struct {
     /// Encrypted file key represented with a slice of bytes
     body: []const u8,
     arena: ArenaAllocator,
+
     /// Parse a stanza string.
     /// Caller owns the returned memory, must be free with `Stanza.destroy()`.
     pub fn parse(
@@ -63,12 +64,25 @@ pub const Stanza = struct {
         /// input string must start with '-> ', end with a line fewer than 64 characters with no newline.
         input: []const u8,
     ) Error!Stanza {
+        var buf = std.io.fixedBufferStream(input);
+        return Stanza.parseFromReader(allocator, buf.reader().any());
+    }
+
+    pub fn parseFromReader(
+        allocator: Allocator,
+        input: std.io.AnyReader,
+    ) Error!Stanza {
         var arena_alloc = ArenaAllocator.init(allocator);
         errdefer arena_alloc.deinit();
         const alloc = arena_alloc.allocator();
 
-        var lines = std.mem.splitScalar(u8, input, '\n');
-        const args = try splitArgs(alloc, lines.first());
+        var line = ArrayList(u8).init(alloc);
+        defer line.deinit();
+        input.streamUntilDelimiter(line.writer(), '\n', null) catch {
+            return Error.MalformedHeader;
+        };
+
+        const args = try splitArgs(alloc, line.items);
 
         for (args) |arg| {
             if (arg.len == 0) {
@@ -85,17 +99,18 @@ pub const Stanza = struct {
         if (!std.mem.startsWith(u8, args[0], stanza_prefix[0..2])) return Error.MalformedHeader;
 
         var body = ArrayList(u8).init(alloc);
-        var final_len: usize = stanza_columns;
-        while (lines.next()) |line| {
-            if (line.len > stanza_columns) {
+        var body_size: usize = 0;
+        while (body.items.len - body_size < stanza_columns) : (body_size = body.items.len) {
+            input.streamUntilDelimiter(body.writer(), '\n', stanza_columns + 1) catch |err| switch (err) {
+                error.EndOfStream => break,
+                else => return Error.MalformedHeader,
+            };
+
+            if (std.mem.startsWith(u8, body.items[body_size..], mac_prefix) or
+                std.mem.startsWith(u8, body.items[body_size..], stanza_prefix))
+            {
                 return Error.MalformedHeader;
             }
-            try body.appendSlice(line);
-            final_len = line.len;
-        }
-
-        if (final_len >= stanza_columns) {
-            return Error.MalformedHeader;
         }
 
         const body_slice = try body.toOwnedSlice();
