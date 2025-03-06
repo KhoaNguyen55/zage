@@ -5,9 +5,8 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const build_cli = b.option(bool, "build-cli", "Build zage, the command line interface for age encryption") orelse false;
 
-    const age_path = b.path("src/age/age.zig");
     const module = b.addModule("age", .{
-        .root_source_file = age_path,
+        .root_source_file = b.path("src/age/age.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -18,9 +17,8 @@ pub fn build(b: *std.Build) void {
     }
 
     const lib_unit_tests = b.addTest(.{
-        .root_source_file = age_path,
-        .target = target,
-        .optimize = optimize,
+        .name = "unit_test",
+        .root_module = module,
     });
 
     const lib_testkit = b.addTest(.{

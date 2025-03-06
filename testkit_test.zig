@@ -164,7 +164,7 @@ fn expectErrorSet(ErrorSet: type, result: anytype, set_name: []const u8) !void {
         std.debug.print("\nExpects: '{s}', got no errors\n", .{set_name});
         return error.NotAnError;
     } else |err| {
-        if (@typeInfo(ErrorSet).ErrorSet) |set| for (set) |err_info| {
+        if (@typeInfo(ErrorSet).error_set) |set| for (set) |err_info| {
             if (std.mem.eql(u8, @errorName(err), err_info.name)) {
                 return;
             }
