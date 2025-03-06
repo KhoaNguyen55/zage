@@ -20,7 +20,7 @@ fn printUsage() void {
 }
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.DebugAllocator(.{}).init;
     defer {
         const leak = gpa.deinit();
         std.debug.assert(leak == .ok);
@@ -66,10 +66,7 @@ pub fn main() !void {
     }
 
     const input = blk: {
-        if (res.positionals.len == 0) {
-            fatal("Missing input file.", .{});
-        }
-        const path = res.positionals[0];
+        const path = res.positionals[0] orelse fatal("Missing input file.", .{});
         break :blk std.fs.cwd().openFile(path, .{}) catch |err| {
             fatal("Can't open file '{s}': {s}", .{ path, @errorName(err) });
         };
