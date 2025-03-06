@@ -1,6 +1,5 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const ArrayList = std.ArrayList;
 
 const scrypt = std.crypto.pwhash.scrypt;
 const kdfError = std.crypto.errors;
