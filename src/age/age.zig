@@ -9,7 +9,7 @@ const HmacSha256 = std.crypto.auth.hmac.sha2.HmacSha256;
 const random = std.crypto.random;
 
 const Allocator = std.mem.Allocator;
-const ArrayList = std.ArrayList;
+const ArrayList = std.ArrayListUnmanaged;
 
 const computeHkdfKey = @import("primitives.zig").computeHkdfKey;
 const format = @import("format.zig");
@@ -324,18 +324,18 @@ test "Scrypt encrypt/decrypt file" {
     const recipient = try scrypt.ScryptRecipient.create(test_allocator, password, null);
     defer recipient.destroy();
 
-    var array = ArrayList(u8).init(test_allocator);
-    errdefer array.deinit();
+    var array: ArrayList(u8) = .empty;
+    errdefer array.deinit(test_allocator);
     var encryptor = AgeEncryptor.encryptInit(test_allocator);
     try encryptor.addRecipient(recipient);
-    try encryptor.finalizeRecipients(array.writer().any());
+    try encryptor.finalizeRecipients(array.writer(test_allocator).any());
     try encryptor.update(test_str[0..]);
     try encryptor.finish();
 
     const identity = try scrypt.ScryptIdentity.create(test_allocator, password);
     defer identity.destroy();
 
-    const owned = try array.toOwnedSlice();
+    const owned = try array.toOwnedSlice(test_allocator);
     defer test_allocator.free(owned);
     var encrypt_file = std.io.fixedBufferStream(owned);
 
@@ -355,19 +355,19 @@ test "encrypt/decrypt file" {
     const public_key = "age17mt2y8v5f3chc5dv22jz4unfcqey37v9jtxlcq834hx5cytjvp6s9txfk0";
     const recipient = try x25519.X25519Recipient.parse(test_allocator, public_key);
 
-    var array = ArrayList(u8).init(test_allocator);
-    errdefer array.deinit();
+    var array: ArrayList(u8) = .empty;
+    errdefer array.deinit(test_allocator);
 
     var encryptor = AgeEncryptor.encryptInit(test_allocator);
     try encryptor.addRecipient(recipient);
-    try encryptor.finalizeRecipients(array.writer().any());
+    try encryptor.finalizeRecipients(array.writer(test_allocator).any());
     try encryptor.update(test_str[0..]);
     try encryptor.finish();
 
     const secret_key = "AGE-SECRET-KEY-1QGN768HAM3H3SDL9WRZZYNP9JESEMEQFLFSJYLZE5A52U55WM2GQH8PMPW";
     const identity = try x25519.X25519Identity.parse(test_allocator, secret_key);
 
-    const owned = try array.toOwnedSlice();
+    const owned = try array.toOwnedSlice(test_allocator);
     defer test_allocator.free(owned);
     var encrypt_file = std.io.fixedBufferStream(owned);
 

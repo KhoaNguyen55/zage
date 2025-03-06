@@ -3,7 +3,7 @@ const X25519 = std.crypto.dh.X25519;
 const bech32 = @import("bech32.zig");
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
-const ArrayList = std.ArrayList;
+const ArrayList = std.ArrayListUnmanaged;
 
 const base64Decoder = std.base64.standard_no_pad.Decoder;
 const base64Encoder = std.base64.standard_no_pad.Encoder;
@@ -37,15 +37,15 @@ pub const Error = error{
 /// Caller owns the returned array of string.
 fn splitArgs(allocator: Allocator, src: []const u8) Allocator.Error![][]const u8 {
     var iter = std.mem.splitScalar(u8, src, ' ');
-    var args = ArrayList([]const u8).init(allocator);
-    errdefer args.deinit();
+    var args: ArrayList([]const u8) = .empty;
+    errdefer args.deinit(allocator);
 
     while (iter.next()) |value| {
         const copy = try allocator.dupe(u8, value);
-        try args.append(copy);
+        try args.append(allocator, copy);
     }
 
-    return args.toOwnedSlice();
+    return args.toOwnedSlice(allocator);
 }
 
 pub const Stanza = struct {
@@ -76,9 +76,9 @@ pub const Stanza = struct {
         errdefer arena_alloc.deinit();
         const alloc = arena_alloc.allocator();
 
-        var line = ArrayList(u8).init(alloc);
-        defer line.deinit();
-        input.streamUntilDelimiter(line.writer(), '\n', null) catch {
+        var line: ArrayList(u8) = .empty;
+        defer line.deinit(alloc);
+        input.streamUntilDelimiter(line.writer(alloc), '\n', null) catch {
             return Error.MalformedHeader;
         };
 
@@ -98,10 +98,10 @@ pub const Stanza = struct {
 
         if (!std.mem.startsWith(u8, args[0], stanza_prefix[0..2])) return Error.MalformedHeader;
 
-        var body = ArrayList(u8).init(alloc);
+        var body: ArrayList(u8) = .empty;
         var body_size: usize = 0;
         while (body.items.len - body_size < stanza_columns) : (body_size = body.items.len) {
-            input.streamUntilDelimiter(body.writer(), '\n', stanza_columns + 1) catch |err| switch (err) {
+            input.streamUntilDelimiter(body.writer(alloc), '\n', stanza_columns + 1) catch |err| switch (err) {
                 error.EndOfStream => break,
                 else => return Error.MalformedHeader,
             };
@@ -113,7 +113,7 @@ pub const Stanza = struct {
             }
         }
 
-        const body_slice = try body.toOwnedSlice();
+        const body_slice = try body.toOwnedSlice(alloc);
         defer alloc.free(body_slice);
 
         const size = base64Decoder.calcSizeForSlice(body_slice) catch return Error.MalformedHeader;
@@ -242,30 +242,30 @@ pub const Header = struct {
         reader: std.io.AnyReader,
     ) Error!Header {
         // TODO: rewrite this function when peeking api get implemented, see https://github.com/ziglang/zig/issues/4501
-        var input = ArrayList(u8).init(allocator);
-        defer input.deinit();
+        var input: ArrayList(u8) = .empty;
+        defer input.deinit(allocator);
         var start_idx: usize = 0;
 
-        reader.streamUntilDelimiter(input.writer(), '\n', null) catch {
+        reader.streamUntilDelimiter(input.writer(allocator), '\n', null) catch {
             return Error.MalformedHeader;
         };
 
         try parseVersion(input.items[start_idx..]);
         start_idx = input.items.len;
 
-        var recipients = ArrayList(Stanza).init(allocator);
+        var recipients: ArrayList(Stanza) = .empty;
         errdefer {
             for (recipients.items) |stanza| {
                 stanza.destroy();
             }
-            recipients.deinit();
+            recipients.deinit(allocator);
         }
 
         var parsing_stanzas = false;
 
         while (true) {
             const in_len = input.items.len;
-            reader.streamUntilDelimiter(input.writer(), '\n', null) catch {
+            reader.streamUntilDelimiter(input.writer(allocator), '\n', null) catch {
                 return Error.MalformedHeader;
             };
 
@@ -275,7 +275,7 @@ pub const Header = struct {
                 {
                     parsing_stanzas = false;
                     const stanza = try Stanza.parse(allocator, input.items[start_idx..in_len]);
-                    try recipients.append(stanza);
+                    try recipients.append(allocator, stanza);
                     start_idx = in_len;
                 }
             }
@@ -285,7 +285,7 @@ pub const Header = struct {
             if (std.mem.startsWith(u8, input.items[in_len..], mac_prefix)) {
                 break;
             }
-            try input.append('\n');
+            try input.append(allocator, '\n');
         }
 
         const mac = try parseMac(input.items[start_idx..]);
@@ -302,7 +302,7 @@ pub const Header = struct {
     /// Caller owns the memory of the returned `Header`, must be free with `Header.destroy()`.
     pub fn init(allocator: Allocator) Header {
         return Header{
-            .recipients = ArrayList(Stanza).init(allocator),
+            .recipients = .empty,
             .mac = null,
             .allocator = allocator,
         };
@@ -314,7 +314,7 @@ pub const Header = struct {
         assert(self.mac == null);
 
         const stanza = try recipient.wrap(self.allocator, &file_key);
-        try self.*.recipients.append(stanza);
+        try self.*.recipients.append(self.allocator, stanza);
     }
 
     /// Finalize a partial header
@@ -404,10 +404,10 @@ pub const Header = struct {
         }
     }
 
-    pub fn destroy(self: Header) void {
+    pub fn destroy(self: *Header) void {
         for (self.recipients.items) |value| {
             value.destroy();
         }
-        self.recipients.deinit();
+        self.recipients.deinit(self.allocator);
     }
 };

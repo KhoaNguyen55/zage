@@ -1,6 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const ArrayList = std.ArrayList;
+const ArrayList = std.ArrayListUnmanaged;
 
 const SHA256 = std.crypto.hash.sha2.Sha256;
 
@@ -38,15 +38,15 @@ const Vector = struct {
     /// gzip compression
     compressed: bool,
 
-    pub fn destroy(self: Vector) void {
-        if (self.identities) |identities| {
-            identities.deinit();
+    pub fn destroy(self: *Vector) void {
+        if (self.identities) |*identities| {
+            identities.deinit(self.allocator);
         }
-        if (self.passphrase) |passphrase| {
+        if (self.passphrase) |*passphrase| {
             for (passphrase.items) |p| {
                 p.destroy();
             }
-            passphrase.deinit();
+            passphrase.deinit(self.allocator);
         }
 
         self.allocator.free(self.file);
@@ -84,10 +84,10 @@ fn parseVector(allocator: Allocator, content: std.io.AnyReader, file_name: []con
     };
     test_vector.test_file_name = allocator.dupe(u8, file_name) catch @panic("Out of memory");
 
-    var buffer = ArrayList(u8).init(allocator);
-    defer buffer.deinit();
+    var buffer: ArrayList(u8) = .empty;
+    defer buffer.deinit(allocator);
     while (true) {
-        content.streamUntilDelimiter(buffer.writer(), '\n', null) catch unreachable;
+        content.streamUntilDelimiter(buffer.writer(allocator), '\n', null) catch unreachable;
         var split = std.mem.splitSequence(u8, buffer.items, ": ");
         const header_key = split.first();
         if (split.next()) |header_value| {
@@ -97,24 +97,24 @@ fn parseVector(allocator: Allocator, content: std.io.AnyReader, file_name: []con
                 test_vector.payload_hash = header_value[0..32].*;
             } else if (std.mem.eql(u8, header_key, "identity")) {
                 if (test_vector.identities) |_| {} else {
-                    test_vector.identities = ArrayList(x25519.X25519Identity).init(allocator);
+                    test_vector.identities = .empty;
                 }
 
                 const identity = x25519.X25519Identity.parse(allocator, header_value) catch {
                     @panic("Can't parse identity, is test file correct? or spec version matched?");
                 };
-                test_vector.identities.?.append(identity) catch {
+                test_vector.identities.?.append(allocator, identity) catch {
                     @panic("Out of memory");
                 };
             } else if (std.mem.eql(u8, header_key, "passphrase")) {
                 if (test_vector.passphrase) |_| {} else {
-                    test_vector.passphrase = ArrayList(scrypt.ScryptIdentity).init(allocator);
+                    test_vector.passphrase = .empty;
                 }
 
                 const identity = scrypt.ScryptIdentity.create(allocator, header_value) catch {
                     @panic("Out of memory");
                 };
-                test_vector.passphrase.?.append(identity) catch {
+                test_vector.passphrase.?.append(allocator, identity) catch {
                     @panic("Out of memory");
                 };
             } else if (std.mem.eql(u8, header_key, "armored")) {
@@ -127,7 +127,7 @@ fn parseVector(allocator: Allocator, content: std.io.AnyReader, file_name: []con
                 // ignore
             } else unreachable;
 
-            buffer.clearAndFree();
+            buffer.clearAndFree(allocator);
         } else if (std.mem.eql(u8, "", header_key)) {
             const file = content.readAllAlloc(allocator, std.math.maxInt(usize)) catch unreachable;
             test_vector.file = file;
@@ -145,18 +145,18 @@ fn parseVectorFolder(allocator: Allocator) []Vector {
     };
     defer testkit.close();
 
-    var vector_array = ArrayList(Vector).init(allocator);
-    errdefer vector_array.deinit();
+    var vector_array: ArrayList(Vector) = .empty;
+    errdefer vector_array.deinit(allocator);
     var iter = testkit.iterate();
     while (iter.next() catch unreachable) |file| {
         const test_file = testkit.openFile(file.name, .{}) catch unreachable;
         defer test_file.close();
-        vector_array.append(parseVector(allocator, test_file.reader().any(), file.name)) catch {
+        vector_array.append(allocator, parseVector(allocator, test_file.reader().any(), file.name)) catch {
             @panic("Out of memory");
         };
     }
 
-    return vector_array.toOwnedSlice() catch unreachable;
+    return vector_array.toOwnedSlice(allocator) catch unreachable;
 }
 
 fn expectErrorSet(ErrorSet: type, result: anytype, set_name: []const u8) !void {
@@ -164,7 +164,7 @@ fn expectErrorSet(ErrorSet: type, result: anytype, set_name: []const u8) !void {
         std.debug.print("\nExpects: '{s}', got no errors\n", .{set_name});
         return error.NotAnError;
     } else |err| {
-        if (@typeInfo(ErrorSet).ErrorSet) |set| for (set) |err_info| {
+        if (@typeInfo(ErrorSet).error_set) |set| for (set) |err_info| {
             if (std.mem.eql(u8, @errorName(err), err_info.name)) {
                 return;
             }
@@ -187,8 +187,8 @@ fn checkHash(values: []const u8, hash: []const u8) !void {
 fn testVector(allocator: Allocator, test_vector: Vector) !void {
     var buffer = std.io.fixedBufferStream(test_vector.file);
 
-    var decrypted = ArrayList(u8).init(allocator);
-    defer decrypted.deinit();
+    var decrypted: ArrayList(u8) = .empty;
+    defer decrypted.deinit(allocator);
 
     const decrypt_error = blk: {
         var decryptor = age.AgeDecryptor.decryptInit(allocator, buffer.reader().any()) catch |err| break :blk err;
@@ -208,7 +208,7 @@ fn testVector(allocator: Allocator, test_vector: Vector) !void {
         decryptor.finalizeIdentities() catch |err| break :blk err;
 
         while (decryptor.next() catch |err| break :blk err) |value| {
-            try decrypted.appendSlice(value);
+            try decrypted.appendSlice(allocator, value);
         }
     };
 
@@ -237,7 +237,7 @@ fn testVector(allocator: Allocator, test_vector: Vector) !void {
 test "testkit" {
     const vectors = parseVectorFolder(test_alloctor);
     defer {
-        for (vectors) |vector| {
+        for (vectors) |*vector| {
             vector.destroy();
         }
         test_alloctor.free(vectors);

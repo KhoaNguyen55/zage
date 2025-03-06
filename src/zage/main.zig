@@ -2,7 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 const Allocator = std.mem.Allocator;
-const ArrayList = std.ArrayList;
+const ArrayList = std.ArrayListUnmanaged;
 
 const clap = @import("clap");
 const age = @import("age");
@@ -20,7 +20,7 @@ fn printUsage() void {
 }
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.DebugAllocator(.{}).init;
     defer {
         const leak = gpa.deinit();
         std.debug.assert(leak == .ok);
@@ -66,10 +66,7 @@ pub fn main() !void {
     }
 
     const input = blk: {
-        if (res.positionals.len == 0) {
-            fatal("Missing input file.", .{});
-        }
-        const path = res.positionals[0];
+        const path = res.positionals[0] orelse fatal("Missing input file.", .{});
         break :blk std.fs.cwd().openFile(path, .{}) catch |err| {
             fatal("Can't open file '{s}': {s}", .{ path, @errorName(err) });
         };
@@ -159,15 +156,15 @@ fn changeInputEcho(enable: bool) !void {
 fn getPassphrase(allocator: Allocator) ![]const u8 {
     const stdin = std.io.getStdIn();
 
-    var passphrase = std.ArrayList(u8).init(allocator);
+    var passphrase: ArrayList(u8) = .empty;
 
     try stdin.writeAll("Passphrase: ");
 
     try changeInputEcho(false);
-    try stdin.reader().streamUntilDelimiter(passphrase.writer(), '\n', null);
+    try stdin.reader().streamUntilDelimiter(passphrase.writer(allocator), '\n', null);
     try changeInputEcho(true);
 
-    return passphrase.toOwnedSlice();
+    return passphrase.toOwnedSlice(allocator);
 }
 
 fn handleDecryption(allocator: Allocator, args: anytype, input: std.fs.File, output: std.fs.File) !void {
@@ -291,8 +288,8 @@ fn addIdentityFromString(allocator: Allocator, processor: AgeProcessor, identity
 }
 
 fn addIdentityFromFiles(allocator: Allocator, processor: AgeProcessor, paths: []const []const u8) !void {
-    var identity_string = ArrayList(u8).init(allocator);
-    defer identity_string.deinit();
+    var identity_string: ArrayList(u8) = .empty;
+    defer identity_string.deinit(allocator);
 
     for (paths) |path| {
         const file = std.fs.cwd().openFile(path, .{}) catch |err| {
@@ -307,7 +304,7 @@ fn addIdentityFromFiles(allocator: Allocator, processor: AgeProcessor, paths: []
             line_num += 1;
             identity_string.clearRetainingCapacity();
         }) {
-            file.reader().streamUntilDelimiter(identity_string.writer(), '\n', null) catch |err| {
+            file.reader().streamUntilDelimiter(identity_string.writer(allocator), '\n', null) catch |err| {
                 switch (err) {
                     error.EndOfStream => break,
                     else => return err,
@@ -351,8 +348,8 @@ fn addRecipientFromString(allocator: Allocator, encryptor: *age.AgeEncryptor, re
 }
 
 fn addRecipientFromFiles(allocator: Allocator, encryptor: *age.AgeEncryptor, paths: []const []const u8) !void {
-    var recipient_string = ArrayList(u8).init(allocator);
-    defer recipient_string.deinit();
+    var recipient_string: ArrayList(u8) = .empty;
+    defer recipient_string.deinit(allocator);
 
     for (paths) |path| {
         const file = std.fs.cwd().openFile(path, .{}) catch |err| {
@@ -361,7 +358,7 @@ fn addRecipientFromFiles(allocator: Allocator, encryptor: *age.AgeEncryptor, pat
         defer file.close();
 
         while (true) {
-            file.reader().streamUntilDelimiter(recipient_string.writer(), '\n', null) catch |err| {
+            file.reader().streamUntilDelimiter(recipient_string.writer(allocator), '\n', null) catch |err| {
                 switch (err) {
                     error.EndOfStream => break,
                     else => return err,

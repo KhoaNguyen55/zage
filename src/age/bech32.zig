@@ -1,6 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const ArrayList = std.ArrayList;
+const ArrayList = std.ArrayListUnmanaged;
 const testing = std.testing;
 const test_allocator = testing.allocator;
 
@@ -109,8 +109,8 @@ fn convertBits(
     tobits: u8,
     pad: bool,
 ) (Error || Allocator.Error)![]u8 {
-    var ret = ArrayList(u8).init(allocator);
-    errdefer ret.deinit();
+    var ret: ArrayList(u8) = .empty;
+    errdefer ret.deinit(allocator);
     var acc: u32 = 0;
     var bits: u8 = 0;
     const maxv: u8 = shl(u8, 1, tobits) -% 1;
@@ -124,13 +124,13 @@ fn convertBits(
         bits += frombits;
         while (bits >= tobits) {
             bits -= tobits;
-            try ret.append(@intCast(shr(u32, acc, bits) & maxv));
+            try ret.append(allocator, @intCast(shr(u32, acc, bits) & maxv));
         }
     }
 
     if (pad) {
         if (bits > 0) {
-            try ret.append(@intCast(shl(u32, acc, (tobits - bits)) & maxv));
+            try ret.append(allocator, @intCast(shl(u32, acc, (tobits - bits)) & maxv));
         }
     } else if (bits >= frombits) {
         return Error.IllegalZeroPadding;
@@ -138,7 +138,7 @@ fn convertBits(
         return Error.NonZeroPadding;
     }
 
-    return ret.toOwnedSlice();
+    return ret.toOwnedSlice(allocator);
 }
 
 /// Encode data into Bech32 format
@@ -169,19 +169,19 @@ pub fn encode(
     const hrp_lower = try std.ascii.allocLowerString(allocator, hrp);
     defer allocator.free(hrp_lower);
 
-    var ret = ArrayList(u8).init(allocator);
-    errdefer ret.deinit();
-    try ret.appendSlice(hrp_lower);
-    try ret.append('1');
+    var ret: ArrayList(u8) = .empty;
+    errdefer ret.deinit(allocator);
+    try ret.appendSlice(allocator, hrp_lower);
+    try ret.append(allocator, '1');
     for (values) |p| {
-        try ret.append(charset[p]);
+        try ret.append(allocator, charset[p]);
     }
     const checksum = try createChecksum(allocator, hrp_lower, values);
     for (checksum) |p| {
-        try ret.append(charset[p]);
+        try ret.append(allocator, charset[p]);
     }
 
-    const encoded_str = try ret.toOwnedSlice();
+    const encoded_str = try ret.toOwnedSlice(allocator);
     errdefer allocator.free(encoded_str);
 
     if (lower) {
@@ -221,17 +221,17 @@ pub fn decode(allocator: Allocator, string: []const u8) (Error || Allocator.Erro
         }
     }
 
-    var data_array = ArrayList(u8).init(allocator);
-    errdefer data_array.deinit();
+    var data_array: ArrayList(u8) = .empty;
+    errdefer data_array.deinit(allocator);
 
     const lower_str = try std.ascii.allocLowerString(allocator, string[pos + 1 ..]);
     defer allocator.free(lower_str);
     for (lower_str) |c| {
         const d = std.mem.indexOfScalar(u8, charset, c) orelse return Error.InvalidData;
-        try data_array.append(@intCast(d));
+        try data_array.append(allocator, @intCast(d));
     }
 
-    const data = try data_array.toOwnedSlice();
+    const data = try data_array.toOwnedSlice(allocator);
     defer allocator.free(data);
 
     // verify checksum

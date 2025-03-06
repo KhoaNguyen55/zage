@@ -3,7 +3,6 @@ const X25519 = std.crypto.dh.X25519;
 const bech32 = @import("bech32.zig");
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
-const ArrayList = std.ArrayList;
 
 const HkdfSha256 = std.crypto.kdf.hkdf.HkdfSha256;
 const ChaCha20Poly1305 = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
