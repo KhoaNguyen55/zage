@@ -6,6 +6,7 @@ const ArrayList = std.ArrayListUnmanaged;
 
 const clap = @import("clap");
 const age = @import("age");
+const age_plugin = @import("age_plugin");
 
 const fatal = std.zig.fatal;
 const assert = std.debug.assert;
@@ -335,9 +336,12 @@ fn addRecipientFromString(allocator: Allocator, encryptor: *age.AgeEncryptor, re
     if (std.mem.startsWith(u8, recipient, "age1")) {
         const index = std.mem.indexOfScalarPos(u8, recipient, 4, '1');
         if (index) |idx| {
-            const plugin_name = recipient[4..idx];
-            _ = plugin_name;
             fatal("Support for plugins is not implemented", .{});
+            const plugin_recipient = age_plugin.client.ClientRecipient.create(allocator, recipient) catch {
+                return error.CantFindPlugin;
+            };
+            
+            try encryptor.*.addRecipient(plugin_recipient);
         } else {
             const x25519_recipient = try age.x25519.X25519Recipient.parse(allocator, recipient);
             try encryptor.*.addRecipient(x25519_recipient);
