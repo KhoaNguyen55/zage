@@ -26,8 +26,29 @@ pub fn build(b: *std.Build) void {
     age_plugin.addImport("bech32", bech32);
 
     if (build_cli) {
-        const buildZage = @import("build-zage.zig").buildZage;
-        buildZage(b, target, optimize, age);
+        const exe_mod =
+            b.createModule(.{
+            .root_source_file = b.path("src/zage/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+
+        const clap = b.dependency("clap", .{});
+        exe_mod.addImport("clap", clap.module("clap"));
+        exe_mod.addImport("age", age);
+        exe_mod.addImport("age_plugin", age_plugin);
+
+        const exe = b.addExecutable(.{ .name = "zage", .root_module = exe_mod });
+        b.installArtifact(exe);
+
+        const run_cmd = b.addRunArtifact(exe);
+        run_cmd.step.dependOn(b.getInstallStep());
+        if (b.args) |args| {
+            run_cmd.addArgs(args);
+        }
+
+        const run_step = b.step("run", "Run the app");
+        run_step.dependOn(&run_cmd.step);
     }
 
     const lib_unit_tests = b.addTest(.{
