@@ -1,8 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-// pub const PluginInstance = @import("plugin_instance.zig");
-// pub const Client = @import("client.zig");
+pub const PluginInstance = @import("plugin_instance.zig");
 const bech32 = @import("bech32");
 
 pub const StateMachine = struct {
