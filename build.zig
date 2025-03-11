@@ -11,27 +11,20 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    const bech32 = b.addModule("bech32", .{
-        .root_source_file = b.path("src/age/bech32.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-
     const age_plugin = b.addModule("age_plugin", .{
         .root_source_file = b.path("src/plugin/plugin.zig"),
         .target = target,
         .optimize = optimize,
     });
     age_plugin.addImport("age", age);
-    age_plugin.addImport("bech32", bech32);
 
     if (build_cli) {
         const exe_mod =
             b.createModule(.{
-            .root_source_file = b.path("src/zage/main.zig"),
-            .target = target,
-            .optimize = optimize,
-        });
+                .root_source_file = b.path("src/zage/main.zig"),
+                .target = target,
+                .optimize = optimize,
+            });
 
         const clap = b.dependency("clap", .{});
         exe_mod.addImport("clap", clap.module("clap"));
@@ -66,6 +59,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    lib_testkit.root_module.addImport("age", age);
 
     const test_step = b.step("test", "run tests");
     test_step.dependOn(&b.addRunArtifact(lib_unit_tests).step);
