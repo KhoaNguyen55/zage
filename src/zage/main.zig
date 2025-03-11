@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayListUnmanaged;
@@ -8,6 +7,7 @@ const clap = @import("clap");
 const age = @import("age");
 const age_plugin = @import("age_plugin");
 const client = @import("client.zig");
+const getInput = client.getInput;
 
 const fatal = std.zig.fatal;
 const assert = std.debug.assert;
@@ -127,48 +127,6 @@ pub fn main() !void {
     }
 }
 
-fn changeInputEcho(enable: bool) !void {
-    if (builtin.os.tag == .windows) {
-        const handle = std.io.getStdIn().handle;
-
-        var flags: u32 = undefined;
-        if (std.os.windows.kernel32.GetConsoleMode(handle, &flags) == 0) {
-            fatal("Not inside a terminal", .{});
-        }
-
-        const echo_enable: u32 = 0x0004;
-        if (enable) {
-            flags &= ~echo_enable;
-        } else {
-            flags &= echo_enable;
-        }
-
-        assert(std.os.windows.kernel32.SetConsoleMode(handle, flags) != 0);
-    } else {
-        var termios = try std.posix.tcgetattr(std.posix.STDIN_FILENO);
-        if (enable) {
-            termios.lflag.ECHO = true;
-        } else {
-            termios.lflag.ECHO = false;
-        }
-        try std.posix.tcsetattr(std.posix.STDIN_FILENO, .NOW, termios);
-    }
-}
-
-fn getPassphrase(allocator: Allocator) ![]const u8 {
-    const stdin = std.io.getStdIn();
-
-    var passphrase: ArrayList(u8) = .empty;
-
-    try stdin.writeAll("Passphrase: ");
-
-    try changeInputEcho(false);
-    try stdin.reader().streamUntilDelimiter(passphrase.writer(allocator), '\n', null);
-    try changeInputEcho(true);
-
-    return passphrase.toOwnedSlice(allocator);
-}
-
 fn handleDecryption(allocator: Allocator, args: anytype, input: std.fs.File, output: std.fs.File) !void {
     var decryptor = try age.AgeDecryptor.decryptInit(allocator, input.reader().any());
 
@@ -182,7 +140,7 @@ fn handleDecryption(allocator: Allocator, args: anytype, input: std.fs.File, out
     }
 
     if (expect_passphrase) {
-        const passphrase = try getPassphrase(allocator);
+        const passphrase = try getInput(allocator, "Passphrase: ", true);
         defer allocator.free(passphrase);
 
         std.debug.print("\nDecrypting using passphrase, this might take a while...\n", .{});
@@ -232,7 +190,7 @@ fn handleEncryption(allocator: Allocator, args: anytype, input: std.fs.File, out
     }
 
     if (args.passphrase != 0) {
-        const passphrase = try getPassphrase(allocator);
+        const passphrase = try getInput(allocator, "Passphrase: ", true);
         defer allocator.free(passphrase);
 
         std.debug.print("\nEncrypting using passphrase, this might take a while...\n", .{});
