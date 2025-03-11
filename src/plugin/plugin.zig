@@ -2,21 +2,21 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 pub const PluginInstance = @import("plugin_instance.zig");
-const bech32 = @import("bech32");
+const bech32 = @import("../age/bech32.zig");
 
 pub const StateMachine = struct {
-    pub const V1 = enum([]const u8) {
-        recipient = "recipient-v1",
-        identity = "identity-v1",
+    pub const V1 = struct {
+        pub const recipient = "recipient-v1";
+        pub const identity = "identity-v1";
     };
 };
 
 /// Parse a recipient bech32 encoded string
 /// Caller owned the returned memory
 pub fn parseRecipient(
-    allocator: Allocator, 
+    allocator: Allocator,
     string: []const u8,
-) anyerror!struct {name: []const u8, data:[]const u8} {
+) anyerror!struct { []const u8, []const u8 } {
     const plugin_recipient = try bech32.decode(allocator, string);
     defer {
         allocator.free(plugin_recipient.hrp);
@@ -31,14 +31,13 @@ pub fn parseRecipient(
         allocator.free(plugin_name);
     }
 
-    return .{.name = plugin_name, .data = plugin_recipient.data};
+    return .{ plugin_name, plugin_recipient.data };
 }
 
-
 pub fn parseIdentity(
-    allocator: Allocator, 
+    allocator: Allocator,
     string: []const u8,
-) anyerror!struct {name: []const u8, data:[]const u8} {
+) anyerror!struct { []const u8, []const u8 } {
     const plugin_identity = try bech32.decode(allocator, string);
     defer {
         allocator.free(plugin_identity.hrp);
@@ -54,7 +53,7 @@ pub fn parseIdentity(
         allocator.free(plugin_name);
     }
 
-    return .{.name = plugin_name, .data = plugin_identity.data};
+    return .{ plugin_name, plugin_identity.data };
 }
 
 test "parse recipient" {
@@ -64,16 +63,15 @@ test "parse recipient" {
     const recipient_string = try bech32.encode(test_alloc, "age1testname", "testdata");
     defer test_alloc.free(recipient_string);
 
-    const plugin = try parseRecipient(test_alloc, recipient_string);
+    const name, const data = try parseRecipient(test_alloc, recipient_string);
     defer {
-        test_alloc.free(plugin.name);
-        test_alloc.free(plugin.data);
+        test_alloc.free(name);
+        test_alloc.free(data);
     }
 
-    try testing.expectEqualStrings("testname", plugin.name);
-    try testing.expectEqualStrings("testdata", plugin.data);
+    try testing.expectEqualStrings("testname", name);
+    try testing.expectEqualStrings("testdata", data);
 }
-
 
 test "parse identity" {
     const testing = std.testing;
@@ -82,13 +80,12 @@ test "parse identity" {
     const identity_string = try bech32.encode(test_alloc, "AGE-PLUGIN-TESTNAME-", "testdata");
     defer test_alloc.free(identity_string);
 
-    const plugin = try parseIdentity(test_alloc, identity_string);
+    const name, const data = try parseIdentity(test_alloc, identity_string);
     defer {
-        test_alloc.free(plugin.name);
-        test_alloc.free(plugin.data);
+        test_alloc.free(name);
+        test_alloc.free(data);
     }
 
-    try testing.expectEqualStrings("testname", plugin.name);
-    try testing.expectEqualStrings("testdata", plugin.data);
+    try testing.expectEqualStrings("testname", name);
+    try testing.expectEqualStrings("testdata", data);
 }
-
