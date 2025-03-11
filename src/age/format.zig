@@ -155,10 +155,11 @@ pub const Stanza = struct {
             args_duped[i] = try alloc.dupe(u8, arg);
         }
 
+        const stanza_copy = try alloc.dupe(u8, stanza_type);
         const body_copy = try alloc.dupe(u8, body);
 
         return Stanza{
-            .type = stanza_type,
+            .type = stanza_copy,
             .args = args_duped,
             .body = body_copy,
             .arena = arena_alloc,
