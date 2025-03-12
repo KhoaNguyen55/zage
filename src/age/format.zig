@@ -1,6 +1,6 @@
 const std = @import("std");
 const X25519 = std.crypto.dh.X25519;
-const bech32 = @import("bech32.zig");
+const bech32 = @import("bech32");
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const ArrayList = std.ArrayListUnmanaged;

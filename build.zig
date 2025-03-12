@@ -5,11 +5,18 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const build_cli = b.option(bool, "build-cli", "Build zage, the command line interface for age encryption") orelse false;
 
+    const bech32 = b.createModule(.{
+        .root_source_file = b.path("src/age/bech32.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     const age = b.addModule("age", .{
         .root_source_file = b.path("src/age/age.zig"),
         .target = target,
         .optimize = optimize,
     });
+    age.addImport("bech32", bech32);
 
     const age_plugin = b.addModule("age_plugin", .{
         .root_source_file = b.path("src/plugin/plugin.zig"),
@@ -17,6 +24,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     age_plugin.addImport("age", age);
+    age_plugin.addImport("bech32", bech32);
 
     if (build_cli) {
         const exe_mod =

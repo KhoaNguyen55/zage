@@ -308,7 +308,6 @@ pub const AgeDecryptor = struct {
 };
 
 test {
-    _ = @import("bech32.zig");
     _ = @import("format.zig");
     _ = @import("x25519.zig");
     _ = @import("scrypt.zig");
