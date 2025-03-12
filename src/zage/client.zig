@@ -4,11 +4,16 @@ const builtin = @import("builtin");
 
 const age = @import("age");
 const Stanza = age.Stanza;
+const file_key_size = age.file_key_size;
 
-const plugin = @import("plugin.zig");
-const PluginInstance = @import("plugin_instance.zig");
+const plugin = @import("age_plugin");
+const PluginInstance = plugin.PluginInstance;
+const Handler = plugin.ClientHandler;
 
-const Error = std.process.Child.SpawnError || Allocator.Error;
+const Error = Allocator.Error || error{
+    BadBech32String,
+    UnableToStartPlugin,
+};
 
 fn changeInputEcho(enable: bool) !void {
     if (builtin.os.tag == .windows) {
@@ -52,37 +57,135 @@ pub fn getInput(allocator: Allocator, message: []const u8, secret: bool) ![]cons
     return passphrase.toOwnedSlice(allocator);
 }
 
+pub const ClientUI = struct {
     plugin: PluginInstance,
+    bech32: []const u8,
+    identity: bool,
+    stanza: ?Stanza = null,
 
-    /// `recipient` is bech32 encoded string
-    /// Use ClientRecipient.destroy()
-    pub fn create(allocator: Allocator, recipient: []const u8) Error!ClientRecipient {
-        const parsed = try plugin.parseRecipient(recipient);
+    /// Use `ClientUI.destroy()` to close the plugin instance
+    pub fn create(allocator: Allocator, bech32: []const u8, identity: bool) Error!ClientUI {
+        const name, const data = switch (identity) {
+            true => plugin.parser.parseRecipient(allocator, bech32) catch return Error.BadBech32String,
+            false => plugin.parser.parseIdentity(allocator, bech32) catch return Error.BadBech32String,
+        };
+
         defer {
-            allocator.free(parsed.name);
-            allocator.free(parsed.data);
+            allocator.free(name);
+            allocator.free(data);
+        }
+
+        const plugin_instance = blk: {
+            if (identity) {
+                break :blk PluginInstance.create(allocator, name, plugin.StateMachine.V1.identity);
+            } else {
+                break :blk PluginInstance.create(allocator, name, plugin.StateMachine.V1.recipient);
+            }
+        } catch {
+            return Error.UnableToStartPlugin;
         };
 
-        // TODO: make the handler
-        const handle = .{};
-
-        const plugin = PluginInstance.create(allocator, parsed.name, handler);
-        try plugin.sendRecipient(recipient);
-        return ClientRecipient{
-            .plugin = plugin,
+        return ClientUI{
+            .plugin = plugin_instance,
+            .bech32 = bech32,
+            .identity = identity,
         };
     }
 
-    pub fn wrap(self: ClientRecipient, allocator: Allocator, file_key: []const u8) anyerror!Stanza {
+    pub fn wrap(self: *ClientUI, _: Allocator, file_key: []const u8) anyerror!Stanza {
+        if (self.identity) {
+            try self.plugin.sendIdentity(self.bech32);
+        } else {
+            try self.plugin.sendRecipient(self.bech32);
+        }
+        try self.plugin.wrapFileKey(file_key);
+        try self.plugin.sendGrease();
+        try self.plugin.sendDone();
 
-        // if read_size == 0 return error.BrokenPipe
+        // phase 2
+        var loop = true;
+        while (loop) : ({
+            loop = !(self.plugin.handleResponse(self.handler()) catch |err| {
+                std.log.err("zage error: {s}", .{@errorName(err)});
+                return err;
+            });
+        }) {}
+
+        return self.stanza orelse error.DidNotRecieveStanza;
     }
 
-    // extension lables
+    pub fn unwrap(self: *ClientUI, stanzas: []const Stanza) anyerror!?[file_key_size]u8 {
+        _ = self;
+        _ = stanzas;
+        return [_]u8{0} ** file_key_size;
+    }
 
-    pub fn destroy(self: ClientRecipient) void {
-        // TODO: maybe log the output of plugin or ignore it.
-        _ = self.plugin.kill();
+    // TODO: extension lables
+
+    pub fn destroy(self: *ClientUI) void {
+        self.plugin.destroy();
+        if (self.stanza) |stanza| {
+            stanza.destroy();
+        }
+    }
+
+    // handlers
+
+    fn handler(self: *ClientUI) Handler {
+        return Handler{
+            .context = self,
+            .message = messageHandler,
+            .confirm = confirm,
+            .request = request,
+            .stanza = stanzaHandler,
+            .labels = undefined,
+            .errors = errors,
+        };
+    }
+
+    fn messageHandler(_: *anyopaque, _: Allocator, message: []const u8) anyerror!void {
+        std.debug.print("{s}\n", .{message});
+    }
+    fn confirm(_: *anyopaque, allocator: Allocator, yes_string: []const u8, no_string: ?[]const u8, message: []const u8) anyerror!bool {
+        while (true) {
+            const input = try getInput(allocator, message, false);
+            if (std.mem.eql(u8, input, yes_string)) {
+                return true;
+            }
+            if (no_string) |no| {
+                if (std.mem.eql(u8, input, no)) {
+                    return false;
+                } else {
+                    std.debug.print("Unrecognized input, only '{s}' or '{s}' are accepted\n", .{ yes_string, no });
+                }
+            } else {
+                return false;
+            }
+        }
+    }
+    fn request(_: *anyopaque, allocator: Allocator, message: []const u8, secret: bool) anyerror![]const u8 {
+        return getInput(allocator, message, secret);
+    }
+    fn stanzaHandler(ctx: *anyopaque, _: Allocator, _: usize, stanza: Stanza) anyerror!void {
+        const self: *ClientUI = @ptrCast(@alignCast(ctx));
+
+        if (self.stanza != null) {
+            return error.MultipleStanzaIsNotAccepted;
+        } else {
+            self.stanza = stanza;
+        }
+    }
+    // fn labels (_, lables: []const []const u8) anyerror!void {}
+    fn errors(_: *anyopaque, allocator: Allocator, error_type: Handler.ErrorType, index: ?usize, message: []const u8) anyerror!void {
+        const file_error = blk: {
+            if (index) |idx| {
+                break :blk try std.fmt.allocPrint(allocator, "at file {}", .{idx});
+            } else break :blk "";
+        };
+
+        defer if (index) |_| allocator.free(file_error);
+
+        std.log.err("Plugin {s} error {s}: {s}", .{ @tagName(error_type), file_error, message });
     }
 };
 
