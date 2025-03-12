@@ -234,13 +234,16 @@ fn addIdentityFromString(allocator: Allocator, processor: AgeProcessor, identity
             },
         }
     } else if (std.mem.startsWith(u8, identity, "AGE-PLUGIN-")) {
-        const index = std.mem.indexOfScalarPos(u8, identity, 11, '-');
-        if (index) |idx| {
-            const plugin_name = identity[11..idx];
-            _ = plugin_name;
-            fatal("Support for plugins is not implemented", .{});
-        } else {
-            return error.UnrecognizedIdentity;
+        var client_identity = try client.ClientUI.create(allocator, identity, true);
+        defer client_identity.destroy();
+
+        switch (processor) {
+            .encryptor => |encryptor| {
+                try encryptor.*.addRecipient(&client_identity);
+            },
+            .decryptor => |decryptor| {
+                try decryptor.*.addIdentity(&client_identity);
+            },
         }
     } else {
         return error.UnrecognizedIdentity;
