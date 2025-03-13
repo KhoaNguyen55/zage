@@ -7,7 +7,7 @@ const Stanza = age.Stanza;
 const file_key_size = age.file_key_size;
 
 const plugin = @import("age_plugin");
-const PluginInstance = plugin.client.PluginInstance;
+const ClientInterface = plugin.client.ClientInterface;
 const Handler = plugin.client.ClientHandler;
 
 const Error = Allocator.Error || error{
@@ -58,7 +58,7 @@ pub fn getInput(allocator: Allocator, message: []const u8, secret: bool) ![]cons
 }
 
 pub const ClientUI = struct {
-    plugin: PluginInstance,
+    plugin: ClientInterface,
     bech32: []const u8,
     identity: bool,
     stanza: ?Stanza = null,
@@ -77,9 +77,9 @@ pub const ClientUI = struct {
 
         const plugin_instance = blk: {
             if (identity) {
-                break :blk PluginInstance.create(allocator, name, plugin.StateMachine.V1.identity);
+                break :blk ClientInterface.create(allocator, name, plugin.StateMachine.V1.identity);
             } else {
-                break :blk PluginInstance.create(allocator, name, plugin.StateMachine.V1.recipient);
+                break :blk ClientInterface.create(allocator, name, plugin.StateMachine.V1.recipient);
             }
         } catch {
             return Error.UnableToStartPlugin;

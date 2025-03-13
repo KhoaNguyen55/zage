@@ -28,14 +28,14 @@ pub const PluginHandleError = error{
     MalformedCommandFromPlugin,
 };
 
-pub const PluginInstance = struct {
+pub const ClientInterface = struct {
     allocator: Allocator,
     plugin: std.process.Child,
     stdin: std.fs.File,
     stdout: std.fs.File,
     stderr: std.fs.File,
 
-    pub fn create(allocator: Allocator, plugin_name: []const u8, version: []const u8) !PluginInstance {
+    pub fn create(allocator: Allocator, plugin_name: []const u8, version: []const u8) !ClientInterface {
         const plugin_exec = try std.fmt.allocPrint(allocator, "age-plugin-{s}", .{plugin_name});
         const plugin_args = try std.fmt.allocPrint(allocator, "--age-plugin={s}", .{version});
         var plugin = std.process.Child.init(&[_][]u8{ plugin_exec, plugin_args }, allocator);
@@ -44,7 +44,7 @@ pub const PluginInstance = struct {
         plugin.stderr_behavior = .Pipe;
         try plugin.spawn();
 
-        return PluginInstance{
+        return ClientInterface{
             .allocator = allocator,
             .plugin = plugin,
             .stdin = plugin.stdin.?,
@@ -54,13 +54,13 @@ pub const PluginInstance = struct {
     }
 
     /// `Not Implemented`
-    pub fn extensionLabels(self: *PluginInstance) void {
+    pub fn extensionLabels(self: *ClientInterface) void {
         _ = self;
         @panic("Not Implemented");
         // try self.stdin.writeAll("(extension-labels)");
     }
 
-    pub fn wrapFileKey(self: *PluginInstance, file_key: []const u8) PluginStdInError!void {
+    pub fn wrapFileKey(self: *ClientInterface, file_key: []const u8) PluginStdInError!void {
         const size = base64Encoder.calcSize(file_key.len);
         const body_encode = try self.allocator.alloc(u8, size);
         defer self.allocator.free(body_encode);
@@ -70,20 +70,20 @@ pub const PluginInstance = struct {
     }
 
     /// `identity` is a Bech32 encoded string
-    pub fn sendIdentity(self: *PluginInstance, identity: []const u8) PluginStdInError!void {
+    pub fn sendIdentity(self: *ClientInterface, identity: []const u8) PluginStdInError!void {
         try self.stdin.writer().print("-> add-identity {s}\n", .{identity});
     }
 
     /// `recipient` is a Bech32 encoded string
-    pub fn sendRecipient(self: *PluginInstance, recipient: []const u8) PluginStdInError!void {
+    pub fn sendRecipient(self: *ClientInterface, recipient: []const u8) PluginStdInError!void {
         try self.stdin.writer().print("-> add-recipient {s}\n", .{recipient});
     }
 
-    pub fn sendDone(self: *PluginInstance) PluginStdInError!void {
+    pub fn sendDone(self: *ClientInterface) PluginStdInError!void {
         try self.stdin.writeAll("-> done\n");
     }
 
-    pub fn sendGrease(self: *PluginInstance) PluginStdInError!void {
+    pub fn sendGrease(self: *ClientInterface) PluginStdInError!void {
         var random = std.Random.DefaultPrng.init(@as(u64, @bitCast(std.time.milliTimestamp())));
 
         var args_bytes: [16]u8 = undefined;
@@ -98,23 +98,23 @@ pub const PluginInstance = struct {
         try self.sendCommand("grease", &.{&args_encoded}, &body_bytes);
     }
 
-    fn sendCommand(self: *PluginInstance, command: []const u8, args: []const []const u8, data: []const u8) PluginStdInError!void {
+    fn sendCommand(self: *ClientInterface, command: []const u8, args: []const []const u8, data: []const u8) PluginStdInError!void {
         const stanza = try Stanza.create(self.allocator, command, args, data);
         defer stanza.destroy();
 
         try self.stdin.writer().print("{s}\n", .{stanza});
     }
 
-    fn sendFail(self: *PluginInstance) PluginStdInError!void {
+    fn sendFail(self: *ClientInterface) PluginStdInError!void {
         return self.stdin.writeAll("-> fail\n");
     }
 
-    fn sendOk(self: *PluginInstance) PluginStdInError!void {
+    fn sendOk(self: *ClientInterface) PluginStdInError!void {
         return self.stdin.writeAll("-> ok\n");
     }
 
     /// Handle responses from the plugin, return `true` if the plugin sent `(done)` otherwise `false`
-    pub fn handleResponse(self: *PluginInstance, handler: ClientHandler) (PluginStdInError || PluginHandleError)!bool {
+    pub fn handleResponse(self: *ClientInterface, handler: ClientHandler) (PluginStdInError || PluginHandleError)!bool {
         const response = Stanza.parseFromReader(self.allocator, self.stdout.reader().any()) catch {
             return PluginHandleError.MalformedCommandFromPlugin;
         };
@@ -262,7 +262,7 @@ pub const PluginInstance = struct {
         return false;
     }
 
-    pub fn destroy(self: *PluginInstance) void {
+    pub fn destroy(self: *ClientInterface) void {
         // TODO: maybe log the output of plugin or ignore it.
         _ = self.plugin.kill() catch |err| {
             std.zig.fatal("Unable to kill plugin process: {s}\n", .{@errorName(err)});
