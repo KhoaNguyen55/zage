@@ -7,8 +7,8 @@ const Stanza = age.Stanza;
 const file_key_size = age.file_key_size;
 
 const plugin = @import("age_plugin");
-const PluginInstance = plugin.PluginInstance;
-const Handler = plugin.ClientHandler;
+const PluginInstance = plugin.client.PluginInstance;
+const Handler = plugin.client.ClientHandler;
 
 const Error = Allocator.Error || error{
     BadBech32String,
@@ -106,7 +106,7 @@ pub const ClientUI = struct {
         var loop = true;
         while (loop) : ({
             loop = !(self.plugin.handleResponse(self.handler()) catch |err| {
-                std.log.err("zage error: {s}", .{@errorName(err)});
+                std.log.err("zage error when handling plugin: {s}", .{@errorName(err)});
                 return err;
             });
         }) {}
