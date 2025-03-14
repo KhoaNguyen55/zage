@@ -2,6 +2,60 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const bech32 = @import("bech32");
+const Bech32 = bech32.Bech32;
+
+fn isPluginNameValid(comptime name: []const u8) bool {
+    if (name.len == 0) return false;
+
+    const allowed = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+-._";
+    for (name) |c| {
+        if (!std.mem.containsAtLeastScalar(u8, allowed, 1, c)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/// Encode recipient string for a given plugin
+/// Caller owns the return memory
+pub fn encodeRecipient(allocator: Allocator, comptime plugin_name: []const u8, data: []const u8) Allocator.Error![]const u8 {
+    const plugin = comptime blk: {
+        var name = std.fmt.comptimePrint("age1{s}", .{plugin_name});
+        _ = std.ascii.lowerString(&name, &name);
+
+        if (!isPluginNameValid(&name)) {
+            @compileError("Invalid plugin name, only alphanumeric characters and '+-._' are allowed");
+        }
+
+        break :blk name;
+    };
+
+    return bech32.encode(allocator, plugin, data) catch |err| switch (err) {
+        Allocator.Error => return err,
+        else => unreachable,
+    };
+}
+
+/// Encode identity string for a given plugin
+/// Caller owns the return memory
+pub fn encodeIdentity(allocator: Allocator, comptime plugin_name: []const u8, data: []const u8) Allocator.Error![]const u8 {
+    const plugin = comptime blk: {
+        var name = std.fmt.comptimePrint("AGE-PLUGIN-{s}-", .{plugin_name});
+        _ = std.ascii.upperString(&name, &name);
+
+        if (!isPluginNameValid(&name)) {
+            @compileError("Invalid plugin name, only alphanumeric characters and '+-._' are allowed");
+        }
+
+        break :blk name;
+    };
+
+    return bech32.encode(allocator, plugin, data) catch |err| switch (err) {
+        Allocator.Error => return err,
+        else => unreachable,
+    };
+}
 
 /// Parse a recipient bech32 encoded string
 /// Caller owned the returned memory
