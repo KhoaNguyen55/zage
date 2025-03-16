@@ -17,5 +17,6 @@
         "changelog",
         "testkit_test.zig",
         "src/age",
+        "src/plugin",
     },
 }
