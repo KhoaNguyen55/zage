@@ -314,7 +314,7 @@ pub const Header = struct {
     pub fn update(self: *Header, recipient: anytype, file_key: [file_key_size]u8) anyerror!void {
         assert(self.mac == null);
 
-        const stanza = try recipient.wrap(self.allocator, &file_key);
+        const stanza = try recipient.wrap(self.allocator, file_key);
         try self.*.recipients.append(self.allocator, stanza);
     }
 

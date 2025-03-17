@@ -61,7 +61,7 @@ pub const X25519Recipient = struct {
         };
     }
 
-    pub fn wrap(self: X25519Recipient, allocator: Allocator, file_key: []const u8) anyerror!Stanza {
+    pub fn wrap(self: X25519Recipient, allocator: Allocator, file_key: [file_key_size]u8) anyerror!Stanza {
         var ephemeral_secret: [X25519.secret_length]u8 = undefined;
         random.bytes(&ephemeral_secret);
 
@@ -69,10 +69,8 @@ pub const X25519Recipient = struct {
             return Error.ShareSecretIsZero;
         };
 
-        const size = base64Encoder.calcSize(ephemeral_share.len);
-        const encoded_emphemeral_share = try allocator.alloc(u8, size);
-        defer allocator.free(encoded_emphemeral_share);
-        _ = base64Encoder.encode(encoded_emphemeral_share, &ephemeral_share);
+        var encoded_emphemeral_share: [base64Encoder.calcSize(X25519.public_length)]u8 = undefined;
+        _ = base64Encoder.encode(&encoded_emphemeral_share, &ephemeral_share);
 
         var salt: [X25519.public_length * 2]u8 = undefined;
         @memcpy(salt[0..ephemeral_share.len], &ephemeral_share);
@@ -93,7 +91,7 @@ pub const X25519Recipient = struct {
         ChaCha20Poly1305.encrypt(
             body[0..file_key_size],
             body[file_key_size..],
-            file_key,
+            &file_key,
             "",
             nonce,
             wrap_key,
@@ -102,7 +100,7 @@ pub const X25519Recipient = struct {
         return Stanza.create(
             allocator,
             "X25519",
-            &.{encoded_emphemeral_share},
+            &.{&encoded_emphemeral_share},
             &body,
         );
     }

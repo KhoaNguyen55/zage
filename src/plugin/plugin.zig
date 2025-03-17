@@ -25,7 +25,7 @@ pub const PluginHandler = struct {
 
     recipient: *const fn (context: *anyopaque, allocator: Allocator, recipient: []const u8) anyerror!void,
     identity: *const fn (context: *anyopaque, allocator: Allocator, identity: []const u8) anyerror!void,
-    fileKey: *const fn (context: *anyopaque, allocator: Allocator, file_key: []const u8) anyerror!void,
+    fileKey: *const fn (context: *anyopaque, allocator: Allocator, file_key: [age.file_key_size]u8) anyerror!void,
 };
 
 pub const PluginInterface = struct {

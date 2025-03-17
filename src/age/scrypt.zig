@@ -44,14 +44,12 @@ pub const ScryptRecipient = struct {
         };
     }
 
-    pub fn wrap(self: ScryptRecipient, _: Allocator, file_key: []const u8) anyerror!Stanza {
+    pub fn wrap(self: ScryptRecipient, allocator: Allocator, file_key: [file_key_size]u8) anyerror!Stanza {
         var scrypt_salt: [salt_length]u8 = undefined;
         random.bytes(&scrypt_salt);
 
-        const size = base64Encoder.calcSize(scrypt_salt.len);
-        const scrypt_salt_encoded = try self.allocator.alloc(u8, size);
-        defer self.allocator.free(scrypt_salt_encoded);
-        _ = base64Encoder.encode(scrypt_salt_encoded, &scrypt_salt);
+        var scrypt_salt_encoded: [base64Encoder.calcSize(file_key_size)]u8 = undefined;
+        _ = base64Encoder.encode(&scrypt_salt_encoded, &scrypt_salt);
 
         var salt: [scrypt_label.len + salt_length]u8 = undefined;
         @memcpy(salt[0..scrypt_label.len], scrypt_label);
@@ -59,7 +57,7 @@ pub const ScryptRecipient = struct {
 
         var wrap_key: [ChaCha20Poly1305.key_length]u8 = undefined;
         try scrypt.kdf(
-            self.allocator,
+            allocator,
             &wrap_key,
             self.passphrase,
             &salt,
@@ -74,7 +72,7 @@ pub const ScryptRecipient = struct {
         ChaCha20Poly1305.encrypt(
             body[0..file_key_size],
             body[file_key_size..],
-            file_key,
+            &file_key,
             "",
             nonce,
             wrap_key,
@@ -84,9 +82,9 @@ pub const ScryptRecipient = struct {
         _ = try std.fmt.bufPrint(&work_factor_str, "{}", .{self.work_factor});
 
         return Stanza.create(
-            self.allocator,
+            allocator,
             identity_type,
-            &.{ scrypt_salt_encoded, &work_factor_str },
+            &.{ &scrypt_salt_encoded, &work_factor_str },
             &body,
         );
     }

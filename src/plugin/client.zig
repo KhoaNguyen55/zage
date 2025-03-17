@@ -60,11 +60,9 @@ pub const ClientInterface = struct {
         // try self.stdin.writeAll("(extension-labels)");
     }
 
-    pub fn wrapFileKey(self: *ClientInterface, file_key: []const u8) PluginStdInError!void {
-        const size = base64Encoder.calcSize(file_key.len);
-        const body_encode = try self.allocator.alloc(u8, size);
-        defer self.allocator.free(body_encode);
-        _ = base64Encoder.encode(body_encode, file_key);
+    pub fn wrapFileKey(self: *ClientInterface, file_key: [age.file_key_size]u8) PluginStdInError!void {
+        var body_encode: [base64Encoder.calcSize(age.file_key_size)]u8 = undefined;
+        _ = base64Encoder.encode(&body_encode, &file_key);
 
         try self.stdin.writer().print("-> wrap-file-key\n{s}\n", .{body_encode});
     }

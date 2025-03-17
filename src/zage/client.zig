@@ -92,7 +92,7 @@ pub const ClientUI = struct {
         };
     }
 
-    pub fn wrap(self: *ClientUI, _: Allocator, file_key: []const u8) anyerror!Stanza {
+    pub fn wrap(self: *ClientUI, _: Allocator, file_key: [age.file_key_size]u8) anyerror!Stanza {
         if (self.identity) {
             try self.plugin.sendIdentity(self.bech32);
         } else {
