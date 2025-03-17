@@ -321,7 +321,7 @@ test "Scrypt encrypt/decrypt file" {
     const test_str = "Hello World!";
 
     const recipient = try scrypt.ScryptRecipient.create(test_allocator, password, null);
-    defer recipient.destroy();
+    defer recipient.destroy(test_allocator);
 
     var array: ArrayList(u8) = .empty;
     errdefer array.deinit(test_allocator);
@@ -332,7 +332,7 @@ test "Scrypt encrypt/decrypt file" {
     try encryptor.finish();
 
     const identity = try scrypt.ScryptIdentity.create(test_allocator, password);
-    defer identity.destroy();
+    defer identity.destroy(test_allocator);
 
     const owned = try array.toOwnedSlice(test_allocator);
     defer test_allocator.free(owned);

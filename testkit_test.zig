@@ -44,7 +44,7 @@ const Vector = struct {
         }
         if (self.passphrase) |*passphrase| {
             for (passphrase.items) |p| {
-                p.destroy();
+                p.destroy(self.allocator);
             }
             passphrase.deinit(self.allocator);
         }

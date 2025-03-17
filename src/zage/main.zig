@@ -149,7 +149,6 @@ fn handleDecryption(allocator: Allocator, args: anytype, input: std.fs.File, out
         // create Identity directly instead of using Create(),
         // prevent a heap allocation
         const identity = age.scrypt.ScryptIdentity{
-            .allocator = allocator,
             .passphrase = passphrase,
         };
 
@@ -199,7 +198,6 @@ fn handleEncryption(allocator: Allocator, args: anytype, input: std.fs.File, out
         // create Recipient directly instead of using Create(),
         // prevent a heap allocation
         const identity = age.scrypt.ScryptRecipient{
-            .allocator = allocator,
             .passphrase = passphrase,
             .work_factor = 18,
         };

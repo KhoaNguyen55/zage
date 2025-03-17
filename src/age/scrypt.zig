@@ -29,7 +29,6 @@ const Error = error{
 } || Allocator.Error;
 
 pub const ScryptRecipient = struct {
-    allocator: Allocator,
     passphrase: []const u8,
     work_factor: u6,
 
@@ -38,7 +37,6 @@ pub const ScryptRecipient = struct {
     pub fn create(allocator: Allocator, passphrase: []const u8, work_factor: ?u6) Allocator.Error!ScryptRecipient {
         const duped_passphrase = try allocator.dupe(u8, passphrase);
         return ScryptRecipient{
-            .allocator = allocator,
             .passphrase = duped_passphrase,
             .work_factor = work_factor orelse 18,
         };
@@ -89,24 +87,23 @@ pub const ScryptRecipient = struct {
         );
     }
 
-    pub fn destroy(self: ScryptRecipient) void {
-        self.allocator.free(self.passphrase);
+    pub fn destroy(self: ScryptRecipient, allocator: Allocator) void {
+        allocator.free(self.passphrase);
     }
 };
 
 pub const ScryptIdentity = struct {
-    allocator: Allocator,
     passphrase: []const u8,
 
     /// Create a `ScryptIdentity` from passphrase.
     /// Caller owns the returned memory, must be free with `AnyIdentity.destroy()`.
     pub fn create(allocator: Allocator, passphrase: []const u8) Allocator.Error!ScryptIdentity {
         const duped_passphrase = try allocator.dupe(u8, passphrase);
-        return ScryptIdentity{ .allocator = allocator, .passphrase = duped_passphrase };
+        return ScryptIdentity{ .passphrase = duped_passphrase };
     }
 
     pub fn recipient(self: ScryptIdentity) ScryptRecipient {
-        return ScryptRecipient{ self.allocator, self.passphrase, 18 };
+        return ScryptRecipient{ self.passphrase, 18 };
     }
 
     pub fn unwrap(self: ScryptIdentity, allocator: Allocator, stanzas: []const Stanza) anyerror!?[file_key_size]u8 {
@@ -194,8 +191,8 @@ pub const ScryptIdentity = struct {
         return null;
     }
 
-    pub fn destroy(self: ScryptIdentity) void {
-        self.allocator.free(self.passphrase);
+    pub fn destroy(self: ScryptIdentity, allocator: Allocator) void {
+        allocator.free(self.passphrase);
     }
 };
 
@@ -208,14 +205,14 @@ test "encrypt/decrypt file_key" {
     const password = "hunter3";
 
     const recipient = try ScryptRecipient.create(test_allocator, password, null);
-    defer recipient.destroy();
+    defer recipient.destroy(test_allocator);
 
-    const wrapped_key = try recipient.wrap(test_allocator, &expected_key);
+    const wrapped_key = try recipient.wrap(test_allocator, expected_key);
     defer wrapped_key.destroy();
 
     const identity = try ScryptIdentity.create(test_allocator, password);
-    defer identity.destroy();
+    defer identity.destroy(test_allocator);
 
-    const key = try identity.unwrap(&.{wrapped_key});
+    const key = try identity.unwrap(test_allocator, &.{wrapped_key});
     try testing.expectEqualSlices(u8, &expected_key, &key.?);
 }
