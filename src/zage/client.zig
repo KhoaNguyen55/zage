@@ -114,7 +114,7 @@ pub const ClientUI = struct {
         return self.stanza orelse error.DidNotRecieveStanza;
     }
 
-    pub fn unwrap(self: *ClientUI, stanzas: []const Stanza) anyerror!?[file_key_size]u8 {
+    pub fn unwrap(self: *ClientUI, _: Allocator, stanzas: []const Stanza) anyerror!?[file_key_size]u8 {
         _ = self;
         _ = stanzas;
         return [_]u8{0} ** file_key_size;

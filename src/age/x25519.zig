@@ -142,7 +142,7 @@ pub const X25519Identity = struct {
         return X25519Recipient{ .their_public_key = self.our_public_key };
     }
 
-    pub fn unwrap(self: X25519Identity, stanzas: []const Stanza) anyerror!?[file_key_size]u8 {
+    pub fn unwrap(self: X25519Identity, _: Allocator, stanzas: []const Stanza) anyerror!?[file_key_size]u8 {
         for (stanzas) |stanza| {
             if (!std.mem.eql(u8, stanza.type, identity_type)) {
                 continue;
@@ -213,12 +213,12 @@ test "encrypt/decrypt file_key" {
 
     const public_key = "age17mt2y8v5f3chc5dv22jz4unfcqey37v9jtxlcq834hx5cytjvp6s9txfk0";
     const recipient = try X25519Recipient.parse(test_allocator, public_key);
-    const wrapped_key = try recipient.wrap(test_allocator, &expected_key);
+    const wrapped_key = try recipient.wrap(test_allocator, expected_key);
     defer wrapped_key.destroy();
 
     const secret_key = "AGE-SECRET-KEY-1QGN768HAM3H3SDL9WRZZYNP9JESEMEQFLFSJYLZE5A52U55WM2GQH8PMPW";
     const x25519 = try X25519Identity.parse(test_allocator, secret_key);
-    const key = try x25519.unwrap(&.{wrapped_key});
+    const key = try x25519.unwrap(undefined, &.{wrapped_key});
 
     try testing.expectEqualSlices(u8, &expected_key, &key.?);
 }

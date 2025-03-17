@@ -109,7 +109,7 @@ pub const ScryptIdentity = struct {
         return ScryptRecipient{ self.allocator, self.passphrase, 18 };
     }
 
-    pub fn unwrap(self: ScryptIdentity, stanzas: []const Stanza) anyerror!?[file_key_size]u8 {
+    pub fn unwrap(self: ScryptIdentity, allocator: Allocator, stanzas: []const Stanza) anyerror!?[file_key_size]u8 {
         if (stanzas.len != 1) {
             return Error.ScryptStanzaMustBeAlone;
         }
@@ -160,7 +160,7 @@ pub const ScryptIdentity = struct {
 
             var wrap_key: [ChaCha20Poly1305.key_length]u8 = undefined;
             scrypt.kdf(
-                self.allocator,
+                allocator,
                 &wrap_key,
                 self.passphrase,
                 &salt,

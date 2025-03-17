@@ -207,7 +207,7 @@ pub const AgeDecryptor = struct {
     pub fn addIdentity(self: *AgeDecryptor, identity: anytype) HeaderError!void {
         errdefer self.header.destroy();
         if (self.file_key == null) {
-            self.file_key = identity.unwrap(self.header.recipients.items) catch {
+            self.file_key = identity.unwrap(self.allocator, self.header.recipients.items) catch {
                 return Error.MalformedHeader;
             };
         }
