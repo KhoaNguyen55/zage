@@ -21,18 +21,19 @@ fn isPluginNameValid(comptime name: []const u8) bool {
 /// Caller owns the return memory
 pub fn encodeRecipient(allocator: Allocator, comptime plugin_name: []const u8, data: []const u8) Allocator.Error![]const u8 {
     const plugin = comptime blk: {
-        var name = std.fmt.comptimePrint("age1{s}", .{plugin_name});
-        _ = std.ascii.lowerString(&name, &name);
+        const name = std.fmt.comptimePrint("age1{s}", .{plugin_name});
+        var lowered: [name.len]u8 = undefined;
+        _ = std.ascii.lowerString(&lowered, name);
 
-        if (!isPluginNameValid(&name)) {
+        if (!isPluginNameValid(&lowered)) {
             @compileError("Invalid plugin name, only alphanumeric characters and '+-._' are allowed");
         }
 
-        break :blk name;
+        break :blk lowered;
     };
 
-    return bech32.encode(allocator, plugin, data) catch |err| switch (err) {
-        Allocator.Error => return err,
+    return bech32.encode(allocator, &plugin, data) catch |err| switch (err) {
+        error.OutOfMemory => error.OutOfMemory,
         else => unreachable,
     };
 }
@@ -41,18 +42,19 @@ pub fn encodeRecipient(allocator: Allocator, comptime plugin_name: []const u8, d
 /// Caller owns the return memory
 pub fn encodeIdentity(allocator: Allocator, comptime plugin_name: []const u8, data: []const u8) Allocator.Error![]const u8 {
     const plugin = comptime blk: {
-        var name = std.fmt.comptimePrint("AGE-PLUGIN-{s}-", .{plugin_name});
-        _ = std.ascii.upperString(&name, &name);
+        const name = std.fmt.comptimePrint("AGE-PLUGIN-{s}-", .{plugin_name});
+        var upper: [name.len]u8 = undefined;
+        _ = std.ascii.upperString(&upper, name);
 
-        if (!isPluginNameValid(&name)) {
+        if (!isPluginNameValid(&upper)) {
             @compileError("Invalid plugin name, only alphanumeric characters and '+-._' are allowed");
         }
 
-        break :blk name;
+        break :blk upper;
     };
 
-    return bech32.encode(allocator, plugin, data) catch |err| switch (err) {
-        Allocator.Error => return err,
+    return bech32.encode(allocator, &plugin, data) catch |err| switch (err) {
+        error.OutOfMemory => error.OutOfMemory,
         else => unreachable,
     };
 }
