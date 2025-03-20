@@ -30,6 +30,11 @@ pub const header_label = "header";
 
 pub const Error = error{
     MalformedHeader,
+    CantReadInput,
+    DoesNotExpectPrefix,
+    WrongPrefix,
+    StanzaTooShort,
+    UnsupportedCharacters,
     UnsupportedVersion,
 } || Allocator.Error;
 
@@ -79,24 +84,24 @@ pub const Stanza = struct {
         var line: ArrayList(u8) = .empty;
         defer line.deinit(alloc);
         input.streamUntilDelimiter(line.writer(alloc), '\n', null) catch {
-            return Error.MalformedHeader;
+            return Error.CantReadInput;
         };
 
         const args = try splitArgs(alloc, line.items);
 
         for (args) |arg| {
             if (arg.len == 0) {
-                return Error.MalformedHeader;
+                return Error.StanzaTooShort;
             }
 
             for (arg) |c| {
                 if (c < 33 or c > 126) {
-                    return Error.MalformedHeader;
+                    return Error.UnsupportedCharacters;
                 }
             }
         }
 
-        if (!std.mem.startsWith(u8, args[0], stanza_prefix[0..2])) return Error.MalformedHeader;
+        if (!std.mem.startsWith(u8, args[0], stanza_prefix[0..2])) return Error.WrongPrefix;
 
         var body: ArrayList(u8) = .empty;
         var body_size: usize = 0;
@@ -109,7 +114,7 @@ pub const Stanza = struct {
             if (std.mem.startsWith(u8, body.items[body_size..], mac_prefix) or
                 std.mem.startsWith(u8, body.items[body_size..], stanza_prefix))
             {
-                return Error.MalformedHeader;
+                return Error.DoesNotExpectPrefix;
             }
         }
 

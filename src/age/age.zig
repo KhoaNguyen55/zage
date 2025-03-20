@@ -30,6 +30,8 @@ const chunk_size = 64 * 1024;
 
 pub const HeaderError = error{
     MalformedHeader,
+    UnsupportedCharacters,
+    StanzaTooShort,
     NoValidIdentities,
     MacsNotEqual,
     EmptyLastChunk,
