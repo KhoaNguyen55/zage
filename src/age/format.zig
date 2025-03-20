@@ -105,7 +105,7 @@ pub const Stanza = struct {
 
         var body: ArrayList(u8) = .empty;
         var body_size: usize = 0;
-        while (body.items.len - body_size < stanza_columns) : (body_size = body.items.len) {
+        while (true) : (body_size = body.items.len) {
             input.streamUntilDelimiter(body.writer(alloc), '\n', stanza_columns + 1) catch |err| switch (err) {
                 error.EndOfStream => break,
                 else => return Error.MalformedHeader,
@@ -115,6 +115,10 @@ pub const Stanza = struct {
                 std.mem.startsWith(u8, body.items[body_size..], stanza_prefix))
             {
                 return Error.DoesNotExpectPrefix;
+            }
+
+            if (body.items.len - body_size < stanza_columns) {
+                break;
             }
         }
 
