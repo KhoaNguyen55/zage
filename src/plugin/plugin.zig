@@ -36,7 +36,11 @@ pub fn runStateMachine(allocator: Allocator, state: []const u8, state_handler: S
         const ctx = state_handler.v1_identity.context;
 
         while (true) {
-            const response = try interface.waitForResponse();
+            const response = interface.waitForResponse() catch |err| {
+                const err_msg = try std.fmt.allocPrint(allocator, "Unable to read response: {s}", .{@errorName(err)});
+                defer allocator.free(err_msg);
+                return try interface.errors(.Internal, 0, err_msg);
+            };
             defer response.destroy();
 
             if (std.mem.eql(u8, response.type, "add-recipient")) {
@@ -148,10 +152,8 @@ pub const PluginInterface = struct {
         return response;
     }
 
-    pub fn waitForResponse(self: PluginInterface) Error!Stanza {
-        const response = Stanza.parseFromReader(self.allocator, self.stdin.reader().any()) catch {
-            return Error.MalformedCommandFromClient;
-        };
+    pub fn waitForResponse(self: PluginInterface) anyerror!Stanza {
+        const response = try Stanza.parseFromReader(self.allocator, self.stdin.reader().any());
         errdefer response.destroy();
 
         return response;
@@ -231,10 +233,16 @@ pub const PluginInterface = struct {
 
     /// Send error to client
     /// `index` is ignored if `error_type` is `.Internal`
-    pub fn errors(self: PluginInterface, error_type: client.ClientHandler.ErrorType, index: usize, message: []const u8) Error!void {
+    pub fn errors(self: PluginInterface, error_type: client.ClientHandler.ErrorType, index: u8, message: []const u8) Error!void {
         switch (error_type) {
-            .Recipient => try self.sendCommand("error", &.{ "recipient", index }, message),
-            .Identity => try self.sendCommand("error", &.{ "identity", index }, message),
+            .Recipient => {
+                const idx = std.fmt.digits2(index);
+                try self.sendCommand("error", &.{ "recipient", &idx }, message);
+            },
+            .Identity => {
+                const idx = std.fmt.digits2(index);
+                try self.sendCommand("error", &.{ "identity", &idx }, message);
+            },
             .Internal => try self.sendCommand("error", &.{"internal"}, message),
         }
     }
