@@ -66,8 +66,8 @@ pub const ClientUI = struct {
     /// Use `ClientUI.destroy()` to close the plugin instance
     pub fn create(allocator: Allocator, bech32: []const u8, identity: bool) Error!ClientUI {
         const name, const data = switch (identity) {
-            true => plugin.parser.parseRecipient(allocator, bech32) catch return Error.BadBech32String,
-            false => plugin.parser.parseIdentity(allocator, bech32) catch return Error.BadBech32String,
+            false => plugin.parser.parseRecipient(allocator, bech32) catch return Error.BadBech32String,
+            true => plugin.parser.parseIdentity(allocator, bech32) catch return Error.BadBech32String,
         };
 
         defer {
@@ -81,7 +81,8 @@ pub const ClientUI = struct {
             } else {
                 break :blk ClientInterface.create(allocator, name, plugin.StateMachine.V1.recipient);
             }
-        } catch {
+        } catch |err| {
+            std.log.err("Unable to start plugin: error: {s}", .{@errorName(err)});
             return Error.UnableToStartPlugin;
         };
 
@@ -93,6 +94,7 @@ pub const ClientUI = struct {
     }
 
     pub fn wrap(self: *ClientUI, _: Allocator, file_key: [age.file_key_size]u8) anyerror!Stanza {
+        std.log.debug("wrapping file keys for plugin: {s}", .{self.bech32});
         if (self.identity) {
             try self.plugin.sendIdentity(self.bech32);
         } else {
@@ -102,6 +104,7 @@ pub const ClientUI = struct {
         try self.plugin.sendGrease();
         try self.plugin.sendDone();
 
+        std.log.debug("Waiting for plugin", .{});
         // phase 2
         var loop = true;
         while (loop) : ({
