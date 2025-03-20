@@ -4,6 +4,7 @@ const age = @import("age");
 const Stanza = age.Stanza;
 const base64Encoder = std.base64.standard_no_pad.Encoder;
 const base64Decoder = std.base64.standard_no_pad.Decoder;
+const ArrayList = std.ArrayListUnmanaged;
 
 pub const parser = @import("parser.zig");
 pub const client = @import("client.zig");
@@ -20,19 +21,101 @@ pub const StateMachine = struct {
     };
 };
 
-pub const PluginHandler = struct {
+pub const StateMachineHandler = struct {
+    v1_recipient: V1RecipientHandler,
+    v1_identity: V1IdentityHandler,
+};
+
+pub fn runStateMachine(allocator: Allocator, state: []const u8, state_handler: StateMachineHandler) anyerror!void {
+    const interface = PluginInterface.create(allocator);
+
+    if (std.mem.eql(u8, state, StateMachine.V1.recipient)) {
+        var file_keys: ArrayList([age.file_key_size]u8) = .empty;
+        errdefer file_keys.deinit(allocator);
+
+        const ctx = state_handler.v1_identity.context;
+
+        while (true) {
+            const response = try interface.waitForResponse();
+            defer response.destroy();
+
+            if (std.mem.eql(u8, response.type, "add-recipient")) {
+                if (response.args.len != 1) {
+                    return Error.MalformedCommandFromClient;
+                }
+
+                try state_handler.v1_recipient.recipient(ctx, allocator, response.args[0]);
+            } else if (std.mem.eql(u8, response.type, "add-identity")) {
+                if (response.args.len != 1) {
+                    return Error.MalformedCommandFromClient;
+                }
+
+                try state_handler.v1_recipient.identity(ctx, allocator, response.args[0]);
+            } else if (std.mem.eql(u8, response.type, "wrap-file-key")) {
+                try file_keys.append(allocator, response.body[0..16].*);
+            } else if (std.mem.eql(u8, response.type, "extension-labels")) {
+                // TODO:
+            } else if (std.mem.eql(u8, response.type, "done")) {
+                const keys = try file_keys.toOwnedSlice(allocator);
+                defer allocator.free(keys);
+
+                try state_handler.v1_recipient.wrapFileKeys(ctx, allocator, interface, keys);
+                break;
+            }
+        }
+    } else if (std.mem.eql(u8, state, StateMachine.V1.identity)) {
+        const ctx = state_handler.v1_identity.context;
+        while (true) {
+            const response = try interface.waitForResponse();
+            defer response.destroy();
+
+            if (std.mem.eql(u8, response.type, "add-identity")) {
+                if (response.args.len != 1) {
+                    return Error.MalformedCommandFromClient;
+                }
+
+                try state_handler.v1_recipient.identity(ctx, allocator, response.args[0]);
+            } else if (std.mem.eql(u8, response.type, "recipient-stanza")) {
+                if (response.args.len < 2) {
+                    return Error.MalformedCommandFromClient;
+                }
+
+                const stanza = try age.Stanza.create(
+                    allocator,
+                    response.args[1],
+                    response.args[2..],
+                    response.body,
+                );
+
+                _ = stanza;
+
+                @panic("Not implemented");
+            } else if (std.mem.eql(u8, response.type, "done")) {
+                break;
+            }
+        }
+    }
+}
+pub const V1RecipientHandler = struct {
     context: *anyopaque,
 
     recipient: *const fn (context: *anyopaque, allocator: Allocator, recipient: []const u8) anyerror!void,
     identity: *const fn (context: *anyopaque, allocator: Allocator, identity: []const u8) anyerror!void,
-    fileKey: *const fn (context: *anyopaque, allocator: Allocator, file_key: [age.file_key_size]u8) anyerror!void,
+    wrapFileKeys: *const fn (context: *anyopaque, allocator: Allocator, interface: PluginInterface, file_keys: []const [age.file_key_size]u8) anyerror!void,
+};
+
+pub const V1IdentityHandler = struct {
+    context: *anyopaque,
+
+    identity: *const fn (context: *anyopaque, allocator: Allocator, identity: []const u8) anyerror!void,
+    unwrapFileKey: *const fn (context: *anyopaque, allocator: Allocator, interface: PluginInterface, stanzas: []const []const Stanza) anyerror!void,
 };
 
 pub const PluginInterface = struct {
     allocator: Allocator,
-    stdin: std.io.File,
-    stdout: std.io.File,
-    stderr: std.io.File,
+    stdin: std.fs.File,
+    stdout: std.fs.File,
+    stderr: std.fs.File,
 
     pub fn create(allocator: Allocator) PluginInterface {
         return PluginInterface{
@@ -61,6 +144,15 @@ pub const PluginInterface = struct {
         {
             return Error.UnknownResponseFromClient;
         }
+
+        return response;
+    }
+
+    pub fn waitForResponse(self: PluginInterface) Error!Stanza {
+        const response = Stanza.parseFromReader(self.allocator, self.stdin.reader().any()) catch {
+            return Error.MalformedCommandFromClient;
+        };
+        errdefer response.destroy();
 
         return response;
     }
