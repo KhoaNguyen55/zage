@@ -37,20 +37,28 @@ pub const ClientInterface = struct {
 
     pub fn create(allocator: Allocator, plugin_name: []const u8, version: []const u8) !ClientInterface {
         const plugin_exec = try std.fmt.allocPrint(allocator, "age-plugin-{s}", .{plugin_name});
+        defer allocator.free(plugin_exec);
         const plugin_args = try std.fmt.allocPrint(allocator, "--age-plugin={s}", .{version});
+        defer allocator.free(plugin_args);
+        std.log.debug("Starting {s} with args: {s}", .{ plugin_exec, plugin_args });
         var plugin = std.process.Child.init(&[_][]u8{ plugin_exec, plugin_args }, allocator);
         plugin.stdin_behavior = .Pipe;
         plugin.stdout_behavior = .Pipe;
         plugin.stderr_behavior = .Pipe;
         try plugin.spawn();
+        try plugin.waitForSpawn();
 
-        return ClientInterface{
+        var interface = ClientInterface{
             .allocator = allocator,
             .plugin = plugin,
             .stdin = plugin.stdin.?,
             .stdout = plugin.stdout.?,
             .stderr = plugin.stderr.?,
         };
+
+        try interface.sendGrease();
+
+        return interface;
     }
 
     /// `Not Implemented`
