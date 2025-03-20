@@ -158,13 +158,13 @@ pub const PluginInterface = struct {
     }
 
     pub fn done(self: PluginInterface) Error!void {
-        try self.stdout.writeAll("-> done\n");
+        try self.sendCommand("done", &.{}, "");
     }
 
     /// Request the client to display a message
     /// Return `true` if message is displays successfully, `false` otherwise.
     pub fn msg(self: PluginInterface, message: []const u8) Error!bool {
-        try self.sendCommand("message", &.{}, message);
+        try self.sendCommand("msg", &.{}, message);
         const res = try self.getResponse();
         defer res.destroy();
 

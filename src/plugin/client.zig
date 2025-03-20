@@ -69,24 +69,21 @@ pub const ClientInterface = struct {
     }
 
     pub fn wrapFileKey(self: *ClientInterface, file_key: [age.file_key_size]u8) PluginStdInError!void {
-        var body_encode: [base64Encoder.calcSize(age.file_key_size)]u8 = undefined;
-        _ = base64Encoder.encode(&body_encode, &file_key);
-
-        try self.stdin.writer().print("-> wrap-file-key\n{s}\n", .{body_encode});
+        try self.sendCommand("wrap-file-key", &.{}, &file_key);
     }
 
     /// `identity` is a Bech32 encoded string
     pub fn sendIdentity(self: *ClientInterface, identity: []const u8) PluginStdInError!void {
-        try self.stdin.writer().print("-> add-identity {s}\n", .{identity});
+        try self.sendCommand("add-recipient", &.{identity}, "");
     }
 
     /// `recipient` is a Bech32 encoded string
     pub fn sendRecipient(self: *ClientInterface, recipient: []const u8) PluginStdInError!void {
-        try self.stdin.writer().print("-> add-recipient {s}\n", .{recipient});
+        try self.sendCommand("add-recipient", &.{recipient}, "");
     }
 
     pub fn sendDone(self: *ClientInterface) PluginStdInError!void {
-        try self.stdin.writeAll("-> done\n");
+        try self.sendCommand("done", &.{}, "");
     }
 
     pub fn sendGrease(self: *ClientInterface) PluginStdInError!void {
@@ -112,11 +109,11 @@ pub const ClientInterface = struct {
     }
 
     fn sendFail(self: *ClientInterface) PluginStdInError!void {
-        return self.stdin.writeAll("-> fail\n");
+        return self.sendCommand("fail", &.{}, "");
     }
 
     fn sendOk(self: *ClientInterface) PluginStdInError!void {
-        return self.stdin.writeAll("-> ok\n");
+        return self.sendCommand("ok", &.{}, "");
     }
 
     /// Handle responses from the plugin, return `true` if the plugin sent `(done)` otherwise `false`
