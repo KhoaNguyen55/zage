@@ -177,11 +177,25 @@ pub const Stanza = struct {
 
     pub fn format(
         self: Stanza,
-        comptime _: []const u8,
+        comptime fmt: []const u8,
         _: std.fmt.FormatOptions,
         writer: anytype,
     ) anyerror!void {
-        try writer.print("{s}{s}", .{ stanza_prefix, self.type });
+        const prefix = comptime blk: {
+            if (std.mem.eql(u8, fmt, "no-prefix")) {
+                break :blk false;
+            } else if (std.mem.eql(u8, fmt, "s")) {
+                break :blk true;
+            } else {
+                @compileError("Unknown format specifier '" ++ fmt ++ "' use 's' or 'no-prefix'");
+            }
+        };
+
+        if (prefix) {
+            try writer.print("{s}", .{stanza_prefix});
+        }
+
+        try writer.print("{s}", .{self.type});
         for (self.args) |arg| {
             try writer.print(" {s}", .{arg});
         }

@@ -221,7 +221,7 @@ pub const PluginInterface = struct {
     }
 
     pub fn recipientStanza(self: PluginInterface, file_index: usize, stanza: Stanza) Error!void {
-        try self.stdout.writer().print("-> recipient-stanza {} {s}\n", .{ file_index, stanza });
+        try self.stdout.writer().print("-> recipient-stanza {} {no-prefix}\n", .{ file_index, stanza });
 
         const res = try self.getResponse();
         defer res.destroy();
