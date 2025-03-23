@@ -127,9 +127,6 @@ pub const ClientUI = struct {
 
     pub fn destroy(self: *ClientUI) void {
         self.plugin.destroy();
-        if (self.stanza) |stanza| {
-            stanza.destroy();
-        }
     }
 
     // handlers

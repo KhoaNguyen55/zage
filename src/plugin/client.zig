@@ -182,6 +182,7 @@ pub const ClientInterface = struct {
                     try self.sendFail();
                     break :handle;
                 };
+                defer self.allocator.free(public);
                 try self.sendCommand("ok", &.{}, public);
             } else if (std.mem.eql(u8, response.type, "request-secret")) {
                 const secret = handler.request(
@@ -193,6 +194,7 @@ pub const ClientInterface = struct {
                     try self.sendFail();
                     break :handle;
                 };
+                defer self.allocator.free(secret);
                 try self.sendCommand("ok", &.{}, secret);
             } else if (std.mem.eql(u8, response.type, "recipient-stanza")) {
                 if (response.args.len < 2) {
