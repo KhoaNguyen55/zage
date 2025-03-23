@@ -7,8 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2025-03-23
+
+## Added:
+- Plugin module
+- zage: Plugin support
+
 ## Changed:
 - Upgrade to Zig 0.14.0
+- `wrap` functions take in a fixed sized array (`age.file_key_size`) instead of
+a pointer for `file_key`
+- `unwrap` functions now need an allocator pass in
+- scrypt recipient and identity now doesn't store allocator, all the functions
+need an allocator pass in
 
 ## [0.5.0] - 2025-03-05
 

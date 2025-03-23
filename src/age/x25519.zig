@@ -1,6 +1,6 @@
 const std = @import("std");
 const X25519 = std.crypto.dh.X25519;
-const bech32 = @import("bech32.zig");
+const bech32 = @import("bech32");
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 
@@ -61,7 +61,7 @@ pub const X25519Recipient = struct {
         };
     }
 
-    pub fn wrap(self: X25519Recipient, allocator: Allocator, file_key: []const u8) anyerror!Stanza {
+    pub fn wrap(self: X25519Recipient, allocator: Allocator, file_key: [file_key_size]u8) anyerror!Stanza {
         var ephemeral_secret: [X25519.secret_length]u8 = undefined;
         random.bytes(&ephemeral_secret);
 
@@ -69,10 +69,8 @@ pub const X25519Recipient = struct {
             return Error.ShareSecretIsZero;
         };
 
-        const size = base64Encoder.calcSize(ephemeral_share.len);
-        const encoded_emphemeral_share = try allocator.alloc(u8, size);
-        defer allocator.free(encoded_emphemeral_share);
-        _ = base64Encoder.encode(encoded_emphemeral_share, &ephemeral_share);
+        var encoded_emphemeral_share: [base64Encoder.calcSize(X25519.public_length)]u8 = undefined;
+        _ = base64Encoder.encode(&encoded_emphemeral_share, &ephemeral_share);
 
         var salt: [X25519.public_length * 2]u8 = undefined;
         @memcpy(salt[0..ephemeral_share.len], &ephemeral_share);
@@ -93,7 +91,7 @@ pub const X25519Recipient = struct {
         ChaCha20Poly1305.encrypt(
             body[0..file_key_size],
             body[file_key_size..],
-            file_key,
+            &file_key,
             "",
             nonce,
             wrap_key,
@@ -102,7 +100,7 @@ pub const X25519Recipient = struct {
         return Stanza.create(
             allocator,
             "X25519",
-            &.{encoded_emphemeral_share},
+            &.{&encoded_emphemeral_share},
             &body,
         );
     }
@@ -144,7 +142,7 @@ pub const X25519Identity = struct {
         return X25519Recipient{ .their_public_key = self.our_public_key };
     }
 
-    pub fn unwrap(self: X25519Identity, stanzas: []const Stanza) anyerror!?[file_key_size]u8 {
+    pub fn unwrap(self: X25519Identity, _: Allocator, stanzas: []const Stanza) anyerror!?[file_key_size]u8 {
         for (stanzas) |stanza| {
             if (!std.mem.eql(u8, stanza.type, identity_type)) {
                 continue;
@@ -215,12 +213,12 @@ test "encrypt/decrypt file_key" {
 
     const public_key = "age17mt2y8v5f3chc5dv22jz4unfcqey37v9jtxlcq834hx5cytjvp6s9txfk0";
     const recipient = try X25519Recipient.parse(test_allocator, public_key);
-    const wrapped_key = try recipient.wrap(test_allocator, &expected_key);
+    const wrapped_key = try recipient.wrap(test_allocator, expected_key);
     defer wrapped_key.destroy();
 
     const secret_key = "AGE-SECRET-KEY-1QGN768HAM3H3SDL9WRZZYNP9JESEMEQFLFSJYLZE5A52U55WM2GQH8PMPW";
     const x25519 = try X25519Identity.parse(test_allocator, secret_key);
-    const key = try x25519.unwrap(&.{wrapped_key});
+    const key = try x25519.unwrap(undefined, &.{wrapped_key});
 
     try testing.expectEqualSlices(u8, &expected_key, &key.?);
 }

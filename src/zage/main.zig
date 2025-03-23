@@ -1,11 +1,13 @@
 const std = @import("std");
-const builtin = @import("builtin");
 
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayListUnmanaged;
 
 const clap = @import("clap");
 const age = @import("age");
+const age_plugin = @import("age_plugin");
+const client = @import("client.zig");
+const getInput = client.getInput;
 
 const fatal = std.zig.fatal;
 const assert = std.debug.assert;
@@ -125,48 +127,6 @@ pub fn main() !void {
     }
 }
 
-fn changeInputEcho(enable: bool) !void {
-    if (builtin.os.tag == .windows) {
-        const handle = std.io.getStdIn().handle;
-
-        var flags: u32 = undefined;
-        if (std.os.windows.kernel32.GetConsoleMode(handle, &flags) == 0) {
-            fatal("Not inside a terminal", .{});
-        }
-
-        const echo_enable: u32 = 0x0004;
-        if (enable) {
-            flags &= ~echo_enable;
-        } else {
-            flags &= echo_enable;
-        }
-
-        assert(std.os.windows.kernel32.SetConsoleMode(handle, flags) != 0);
-    } else {
-        var termios = try std.posix.tcgetattr(std.posix.STDIN_FILENO);
-        if (enable) {
-            termios.lflag.ECHO = true;
-        } else {
-            termios.lflag.ECHO = false;
-        }
-        try std.posix.tcsetattr(std.posix.STDIN_FILENO, .NOW, termios);
-    }
-}
-
-fn getPassphrase(allocator: Allocator) ![]const u8 {
-    const stdin = std.io.getStdIn();
-
-    var passphrase: ArrayList(u8) = .empty;
-
-    try stdin.writeAll("Passphrase: ");
-
-    try changeInputEcho(false);
-    try stdin.reader().streamUntilDelimiter(passphrase.writer(allocator), '\n', null);
-    try changeInputEcho(true);
-
-    return passphrase.toOwnedSlice(allocator);
-}
-
 fn handleDecryption(allocator: Allocator, args: anytype, input: std.fs.File, output: std.fs.File) !void {
     var decryptor = try age.AgeDecryptor.decryptInit(allocator, input.reader().any());
 
@@ -180,7 +140,7 @@ fn handleDecryption(allocator: Allocator, args: anytype, input: std.fs.File, out
     }
 
     if (expect_passphrase) {
-        const passphrase = try getPassphrase(allocator);
+        const passphrase = try getInput(allocator, "Passphrase: ", true);
         defer allocator.free(passphrase);
 
         std.debug.print("\nDecrypting using passphrase, this might take a while...\n", .{});
@@ -189,7 +149,6 @@ fn handleDecryption(allocator: Allocator, args: anytype, input: std.fs.File, out
         // create Identity directly instead of using Create(),
         // prevent a heap allocation
         const identity = age.scrypt.ScryptIdentity{
-            .allocator = allocator,
             .passphrase = passphrase,
         };
 
@@ -230,7 +189,7 @@ fn handleEncryption(allocator: Allocator, args: anytype, input: std.fs.File, out
     }
 
     if (args.passphrase != 0) {
-        const passphrase = try getPassphrase(allocator);
+        const passphrase = try getInput(allocator, "Passphrase: ", true);
         defer allocator.free(passphrase);
 
         std.debug.print("\nEncrypting using passphrase, this might take a while...\n", .{});
@@ -239,7 +198,6 @@ fn handleEncryption(allocator: Allocator, args: anytype, input: std.fs.File, out
         // create Recipient directly instead of using Create(),
         // prevent a heap allocation
         const identity = age.scrypt.ScryptRecipient{
-            .allocator = allocator,
             .passphrase = passphrase,
             .work_factor = 18,
         };
@@ -274,13 +232,16 @@ fn addIdentityFromString(allocator: Allocator, processor: AgeProcessor, identity
             },
         }
     } else if (std.mem.startsWith(u8, identity, "AGE-PLUGIN-")) {
-        const index = std.mem.indexOfScalarPos(u8, identity, 11, '-');
-        if (index) |idx| {
-            const plugin_name = identity[11..idx];
-            _ = plugin_name;
-            fatal("Support for plugins is not implemented", .{});
-        } else {
-            return error.UnrecognizedIdentity;
+        var client_identity = try client.ClientUI.create(allocator, identity, true);
+        defer client_identity.destroy();
+
+        switch (processor) {
+            .encryptor => |encryptor| {
+                try encryptor.*.addRecipient(&client_identity);
+            },
+            .decryptor => |decryptor| {
+                try decryptor.*.addIdentity(&client_identity);
+            },
         }
     } else {
         return error.UnrecognizedIdentity;
@@ -297,8 +258,6 @@ fn addIdentityFromFiles(allocator: Allocator, processor: AgeProcessor, paths: []
         };
         defer file.close();
 
-        std.log.debug("Reading identity file at {s}", .{path});
-
         var line_num: usize = 1;
         while (true) : ({
             line_num += 1;
@@ -312,11 +271,11 @@ fn addIdentityFromFiles(allocator: Allocator, processor: AgeProcessor, paths: []
             };
 
             if (identity_string.items.len == 0) {
-                std.log.debug("Skipping empty string at line: {}", .{line_num});
+                std.log.debug("Skipping empty string at line: {}, in file: {s}", .{ line_num, path });
                 continue;
             }
             if (std.mem.startsWith(u8, identity_string.items, "#")) {
-                std.log.debug("Skipping comment at line: {}", .{line_num});
+                std.log.debug("Skipping comment at line: {}, in file: {s}", .{ line_num, path });
                 continue;
             }
 
@@ -324,7 +283,7 @@ fn addIdentityFromFiles(allocator: Allocator, processor: AgeProcessor, paths: []
 
             const trimmed = std.mem.trimRight(u8, identity_string.items, "\r");
             addIdentityFromString(allocator, processor, trimmed) catch |err| switch (err) {
-                error.UnrecognizedIdentity => fatal("Unrecognized identity in file: '{s}' at line: '{}'", .{ path, line_num }),
+                error.UnrecognizedIdentity, error.UnableToStartPlugin => std.log.info("Skipping unrecognized identity in file: '{s}' at line: '{}'", .{ path, line_num }),
                 else => return err,
             };
         }
@@ -334,16 +293,20 @@ fn addIdentityFromFiles(allocator: Allocator, processor: AgeProcessor, paths: []
 fn addRecipientFromString(allocator: Allocator, encryptor: *age.AgeEncryptor, recipient: []const u8) !void {
     if (std.mem.startsWith(u8, recipient, "age1")) {
         const index = std.mem.indexOfScalarPos(u8, recipient, 4, '1');
-        if (index) |idx| {
-            const plugin_name = recipient[4..idx];
-            _ = plugin_name;
-            fatal("Support for plugins is not implemented", .{});
+        if (index) |_| {
+            var client_recipient = client.ClientUI.create(allocator, recipient, false) catch |err| switch (err) {
+                error.UnableToStartPlugin => return std.log.info("Unable to start plugin for recipient: {s}", .{recipient}),
+                else => return err,
+            };
+            defer client_recipient.destroy();
+
+            try encryptor.*.addRecipient(&client_recipient);
         } else {
             const x25519_recipient = try age.x25519.X25519Recipient.parse(allocator, recipient);
             try encryptor.*.addRecipient(x25519_recipient);
         }
     } else {
-        fatal("Unrecognized recipient: {s}", .{recipient});
+        std.log.info("Unrecognized recipient: {s}", .{recipient});
     }
 }
 
@@ -357,7 +320,11 @@ fn addRecipientFromFiles(allocator: Allocator, encryptor: *age.AgeEncryptor, pat
         };
         defer file.close();
 
-        while (true) {
+        var line_num: usize = 1;
+        while (true) : ({
+            line_num += 1;
+            recipient_string.clearRetainingCapacity();
+        }) {
             file.reader().streamUntilDelimiter(recipient_string.writer(allocator), '\n', null) catch |err| {
                 switch (err) {
                     error.EndOfStream => break,
@@ -365,8 +332,14 @@ fn addRecipientFromFiles(allocator: Allocator, encryptor: *age.AgeEncryptor, pat
                 }
             };
 
-            if (recipient_string.items.len == 0) continue;
-            if (std.mem.startsWith(u8, recipient_string.items, "#")) continue;
+            if (recipient_string.items.len == 0) {
+                std.log.debug("Skipping empty string at line: {}, in file: {s}", .{ line_num, path });
+                continue;
+            }
+            if (std.mem.startsWith(u8, recipient_string.items, "#")) {
+                std.log.debug("Skipping comment at line: {}, in file: {s}", .{ line_num, path });
+                continue;
+            }
 
             const trimmed = std.mem.trimRight(u8, recipient_string.items, "\r");
             try addRecipientFromString(allocator, encryptor, trimmed);

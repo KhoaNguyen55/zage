@@ -1,6 +1,6 @@
 const std = @import("std");
 const X25519 = std.crypto.dh.X25519;
-const bech32 = @import("bech32.zig");
+const bech32 = @import("bech32");
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const ArrayList = std.ArrayListUnmanaged;
@@ -30,6 +30,11 @@ pub const header_label = "header";
 
 pub const Error = error{
     MalformedHeader,
+    CantReadInput,
+    DoesNotExpectPrefix,
+    WrongPrefix,
+    StanzaTooShort,
+    UnsupportedCharacters,
     UnsupportedVersion,
 } || Allocator.Error;
 
@@ -79,28 +84,28 @@ pub const Stanza = struct {
         var line: ArrayList(u8) = .empty;
         defer line.deinit(alloc);
         input.streamUntilDelimiter(line.writer(alloc), '\n', null) catch {
-            return Error.MalformedHeader;
+            return Error.CantReadInput;
         };
 
         const args = try splitArgs(alloc, line.items);
 
         for (args) |arg| {
             if (arg.len == 0) {
-                return Error.MalformedHeader;
+                return Error.StanzaTooShort;
             }
 
             for (arg) |c| {
                 if (c < 33 or c > 126) {
-                    return Error.MalformedHeader;
+                    return Error.UnsupportedCharacters;
                 }
             }
         }
 
-        if (!std.mem.startsWith(u8, args[0], stanza_prefix[0..2])) return Error.MalformedHeader;
+        if (!std.mem.startsWith(u8, args[0], stanza_prefix[0..2])) return Error.WrongPrefix;
 
         var body: ArrayList(u8) = .empty;
         var body_size: usize = 0;
-        while (body.items.len - body_size < stanza_columns) : (body_size = body.items.len) {
+        while (true) : (body_size = body.items.len) {
             input.streamUntilDelimiter(body.writer(alloc), '\n', stanza_columns + 1) catch |err| switch (err) {
                 error.EndOfStream => break,
                 else => return Error.MalformedHeader,
@@ -109,7 +114,11 @@ pub const Stanza = struct {
             if (std.mem.startsWith(u8, body.items[body_size..], mac_prefix) or
                 std.mem.startsWith(u8, body.items[body_size..], stanza_prefix))
             {
-                return Error.MalformedHeader;
+                return Error.DoesNotExpectPrefix;
+            }
+
+            if (body.items.len - body_size < stanza_columns) {
+                break;
             }
         }
 
@@ -155,10 +164,11 @@ pub const Stanza = struct {
             args_duped[i] = try alloc.dupe(u8, arg);
         }
 
+        const stanza_copy = try alloc.dupe(u8, stanza_type);
         const body_copy = try alloc.dupe(u8, body);
 
         return Stanza{
-            .type = stanza_type,
+            .type = stanza_copy,
             .args = args_duped,
             .body = body_copy,
             .arena = arena_alloc,
@@ -167,11 +177,25 @@ pub const Stanza = struct {
 
     pub fn format(
         self: Stanza,
-        comptime _: []const u8,
+        comptime fmt: []const u8,
         _: std.fmt.FormatOptions,
         writer: anytype,
     ) anyerror!void {
-        try writer.print("{s}{s}", .{ stanza_prefix, self.type });
+        const prefix = comptime blk: {
+            if (std.mem.eql(u8, fmt, "no-prefix")) {
+                break :blk false;
+            } else if (std.mem.eql(u8, fmt, "s")) {
+                break :blk true;
+            } else {
+                @compileError("Unknown format specifier '" ++ fmt ++ "' use 's' or 'no-prefix'");
+            }
+        };
+
+        if (prefix) {
+            try writer.print("{s}", .{stanza_prefix});
+        }
+
+        try writer.print("{s}", .{self.type});
         for (self.args) |arg| {
             try writer.print(" {s}", .{arg});
         }
@@ -313,7 +337,7 @@ pub const Header = struct {
     pub fn update(self: *Header, recipient: anytype, file_key: [file_key_size]u8) anyerror!void {
         assert(self.mac == null);
 
-        const stanza = try recipient.wrap(self.allocator, &file_key);
+        const stanza = try recipient.wrap(self.allocator, file_key);
         try self.*.recipients.append(self.allocator, stanza);
     }
 

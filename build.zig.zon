@@ -13,10 +13,10 @@
         "LICENSE",
         "README.md",
         "build.zig",
-        "build-zage.zig",
         "build.zig.zon",
         "changelog",
         "testkit_test.zig",
         "src/age",
+        "src/plugin",
     },
 }

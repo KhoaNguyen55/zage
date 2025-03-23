@@ -32,7 +32,7 @@ With recipient: `zage -d -i private_key <input_file>`
 
 [Documentation](https://khoanguyen55.github.io/zage/)
 
-The library is for `zig v0.13.0` for now.
+The library is for `zig v0.14.0` for now.
 
 To install as a zig library you can run the `zig fetch` command:
 
@@ -47,7 +47,8 @@ const age = b.dependency("age", .{
     .target = target,
     .optimize = optimize,
 });
-exe.root_module.addImport("age", age.module("age"));
+exe_mod.addImport("age", age.module("age"));
+// exe_mod.addImport("age_plugin", age.module("age_plugin")); // uncomment if you're developing a plugin
 ```
 
 # Contributes
