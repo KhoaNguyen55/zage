@@ -14,7 +14,7 @@ pub const ClientHandler = struct {
 
     context: *anyopaque,
 
-    message: *const fn (context: *anyopaque, allocator: Allocator, message: []const u8) anyerror!void,
+    msg: *const fn (context: *anyopaque, allocator: Allocator, message: []const u8) anyerror!void,
     confirm: *const fn (context: *anyopaque, allocator: Allocator, yes_string: []const u8, no_string: ?[]const u8, message: []const u8) anyerror!bool,
     requestInput: *const fn (context: *anyopaque, allocator: Allocator, message: []const u8, secret: bool) anyerror![]const u8,
     fileKey: *const fn (context: *anyopaque, allocator: Allocator, file_index: usize, file_key: [age.file_key_size]u8) anyerror!void,
@@ -57,7 +57,7 @@ pub const ClientInterface = struct {
             .stderr = plugin.stderr.?,
         };
 
-        try interface.sendGrease();
+        try interface.grease();
 
         return interface;
     }
@@ -79,20 +79,20 @@ pub const ClientInterface = struct {
     }
 
     /// `identity` is a Bech32 encoded string
-    pub fn sendIdentity(self: *ClientInterface, identity: []const u8) PluginStdInError!void {
+    pub fn addIdentity(self: *ClientInterface, identity: []const u8) PluginStdInError!void {
         try self.sendCommand("add-recipient", &.{identity}, "");
     }
 
     /// `recipient` is a Bech32 encoded string
-    pub fn sendRecipient(self: *ClientInterface, recipient: []const u8) PluginStdInError!void {
+    pub fn addRecipient(self: *ClientInterface, recipient: []const u8) PluginStdInError!void {
         try self.sendCommand("add-recipient", &.{recipient}, "");
     }
 
-    pub fn sendDone(self: *ClientInterface) PluginStdInError!void {
+    pub fn done(self: *ClientInterface) PluginStdInError!void {
         try self.sendCommand("done", &.{}, "");
     }
 
-    pub fn sendGrease(self: *ClientInterface) PluginStdInError!void {
+    pub fn grease(self: *ClientInterface) PluginStdInError!void {
         var random = std.Random.DefaultPrng.init(@as(u64, @bitCast(std.time.milliTimestamp())));
 
         var args_bytes: [16]u8 = undefined;
@@ -131,7 +131,7 @@ pub const ClientInterface = struct {
 
         handle: {
             if (std.mem.eql(u8, response.type, "msg")) {
-                handler.message(handler.context, self.allocator, response.body) catch {
+                handler.msg(handler.context, self.allocator, response.body) catch {
                     try self.sendFail();
                     break :handle;
                 };
@@ -179,7 +179,7 @@ pub const ClientInterface = struct {
 
                 try self.sendCommand("ok", &.{if (confirmation) "yes" else "no"}, &.{});
             } else if (std.mem.eql(u8, response.type, "request-public")) {
-                const public = handler.request(
+                const public = handler.requestInput(
                     handler.context,
                     self.allocator,
                     response.body,
@@ -191,7 +191,7 @@ pub const ClientInterface = struct {
                 defer self.allocator.free(public);
                 try self.sendCommand("ok", &.{}, public);
             } else if (std.mem.eql(u8, response.type, "request-secret")) {
-                const secret = handler.request(
+                const secret = handler.requestInput(
                     handler.context,
                     self.allocator,
                     response.body,
@@ -235,7 +235,7 @@ pub const ClientInterface = struct {
                 const file_idx = std.fmt.parseInt(usize, response.args[0], 10) catch {
                     return PluginHandleError.MalformedCommandFromPlugin;
                 };
-                handler.stanza(
+                handler.recipientStanza(
                     handler.context,
                     self.allocator,
                     file_idx,

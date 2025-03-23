@@ -96,13 +96,13 @@ pub const ClientUI = struct {
     pub fn wrap(self: *ClientUI, _: Allocator, file_key: [age.file_key_size]u8) anyerror!Stanza {
         std.log.debug("wrapping file keys for plugin: {s}", .{self.bech32});
         if (self.identity) {
-            try self.plugin.sendIdentity(self.bech32);
+            try self.plugin.addIdentity(self.bech32);
         } else {
-            try self.plugin.sendRecipient(self.bech32);
+            try self.plugin.addRecipient(self.bech32);
         }
         try self.plugin.wrapFileKey(file_key);
-        try self.plugin.sendGrease();
-        try self.plugin.sendDone();
+        try self.plugin.grease();
+        try self.plugin.done();
 
         std.log.debug("Waiting for plugin", .{});
         // phase 2
@@ -134,10 +134,10 @@ pub const ClientUI = struct {
     fn handler(self: *ClientUI) Handler {
         return Handler{
             .context = self,
-            .message = messageHandler,
+            .msg = messageHandler,
             .confirm = confirm,
-            .request = request,
-            .stanza = stanzaHandler,
+            .requestInput = request,
+            .recipientStanza = stanzaHandler,
             .labels = undefined,
             .errors = errors,
         };
