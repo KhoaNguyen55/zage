@@ -62,6 +62,7 @@ pub const ClientUI = struct {
     bech32: []const u8,
     identity: bool,
     stanza: ?Stanza = null,
+    file_key: ?[file_key_size]u8 = null,
 
     /// Use `ClientUI.destroy()` to close the plugin instance
     pub fn create(allocator: Allocator, bech32: []const u8, identity: bool) Error!ClientUI {
@@ -94,7 +95,6 @@ pub const ClientUI = struct {
     }
 
     pub fn wrap(self: *ClientUI, _: Allocator, file_key: [age.file_key_size]u8) anyerror!Stanza {
-        std.log.debug("wrapping file keys for plugin: {s}", .{self.bech32});
         if (self.identity) {
             try self.plugin.addIdentity(self.bech32);
         } else {
@@ -118,9 +118,22 @@ pub const ClientUI = struct {
     }
 
     pub fn unwrap(self: *ClientUI, _: Allocator, stanzas: []const Stanza) anyerror!?[file_key_size]u8 {
-        _ = self;
-        _ = stanzas;
-        return [_]u8{0} ** file_key_size;
+        try self.plugin.addIdentity(self.bech32);
+        for (stanzas) |stanza| {
+            try self.plugin.recipientStanza(0, stanza);
+        }
+        try self.plugin.grease();
+        try self.plugin.done();
+
+        var loop = true;
+        while (loop) : ({
+            loop = !(self.plugin.handleResponse(self.handler()) catch |err| {
+                std.log.err("zage error when handling plugin: {s}", .{@errorName(err)});
+                return err;
+            });
+        }) {}
+
+        return self.file_key;
     }
 
     // TODO: extension lables
@@ -138,6 +151,7 @@ pub const ClientUI = struct {
             .confirm = confirm,
             .requestInput = request,
             .recipientStanza = stanzaHandler,
+            .fileKey = fileKeyHandler,
             .labels = undefined,
             .errors = errors,
         };
@@ -165,6 +179,15 @@ pub const ClientUI = struct {
     }
     fn request(_: *anyopaque, allocator: Allocator, message: []const u8, secret: bool) anyerror![]const u8 {
         return getInput(allocator, message, secret);
+    }
+    fn fileKeyHandler(ctx: *anyopaque, _: Allocator, _: usize, file_key: [file_key_size]u8) anyerror!void {
+        const self: *ClientUI = @ptrCast(@alignCast(ctx));
+
+        if (self.file_key != null) {
+            return error.MultipleFileKeyIsNotAccepted;
+        } else {
+            self.file_key = file_key;
+        }
     }
     fn stanzaHandler(ctx: *anyopaque, _: Allocator, _: usize, stanza: Stanza) anyerror!void {
         const self: *ClientUI = @ptrCast(@alignCast(ctx));
