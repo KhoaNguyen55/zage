@@ -16,8 +16,9 @@ pub const ClientHandler = struct {
 
     message: *const fn (context: *anyopaque, allocator: Allocator, message: []const u8) anyerror!void,
     confirm: *const fn (context: *anyopaque, allocator: Allocator, yes_string: []const u8, no_string: ?[]const u8, message: []const u8) anyerror!bool,
-    request: *const fn (context: *anyopaque, allocator: Allocator, message: []const u8, secret: bool) anyerror![]const u8,
-    stanza: *const fn (context: *anyopaque, allocator: Allocator, file_index: usize, stanza: Stanza) anyerror!void,
+    requestInput: *const fn (context: *anyopaque, allocator: Allocator, message: []const u8, secret: bool) anyerror![]const u8,
+    fileKey: *const fn (context: *anyopaque, allocator: Allocator, file_index: usize, file_key: [age.file_key_size]u8) anyerror!void,
+    recipientStanza: *const fn (context: *anyopaque, allocator: Allocator, file_index: usize, stanza: Stanza) anyerror!void,
     labels: *const fn (context: *anyopaque, allocator: Allocator, lables: []const []const u8) anyerror!void,
     errors: *const fn (context: *anyopaque, allocator: Allocator, error_type: ErrorType, index: ?usize, message: []const u8) anyerror!void,
 };
@@ -70,6 +71,11 @@ pub const ClientInterface = struct {
 
     pub fn wrapFileKey(self: *ClientInterface, file_key: [age.file_key_size]u8) PluginStdInError!void {
         try self.sendCommand("wrap-file-key", &.{}, &file_key);
+    }
+
+    pub fn recipientStanza(self: *ClientInterface, file_index: u8, stanza: Stanza) PluginStdInError!void {
+        const idx = std.fmt.digits2(file_index);
+        try self.stdin.writer().print("-> recipient-stanza {s} {no-prefix}\n", .{ idx, stanza });
     }
 
     /// `identity` is a Bech32 encoded string
@@ -196,6 +202,25 @@ pub const ClientInterface = struct {
                 };
                 defer self.allocator.free(secret);
                 try self.sendCommand("ok", &.{}, secret);
+            } else if (std.mem.eql(u8, response.type, "file-key")) {
+                if (response.args.len != 1) {
+                    return PluginHandleError.MalformedCommandFromPlugin;
+                }
+
+                const file_idx = std.fmt.parseInt(usize, response.args[0], 10) catch {
+                    return PluginHandleError.MalformedCommandFromPlugin;
+                };
+
+                handler.fileKey(
+                    handler.context,
+                    self.allocator,
+                    file_idx,
+                    response.body[0..16].*,
+                ) catch {
+                    try self.sendFail();
+                    break :handle;
+                };
+                try self.sendOk();
             } else if (std.mem.eql(u8, response.type, "recipient-stanza")) {
                 if (response.args.len < 2) {
                     return PluginHandleError.MalformedCommandFromPlugin;

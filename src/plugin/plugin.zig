@@ -4,7 +4,7 @@ const age = @import("age");
 const Stanza = age.Stanza;
 const base64Encoder = std.base64.standard_no_pad.Encoder;
 const base64Decoder = std.base64.standard_no_pad.Decoder;
-const ArrayList = std.ArrayListUnmanaged;
+const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 pub const parser = @import("parser.zig");
 pub const client = @import("client.zig");
@@ -30,7 +30,7 @@ pub fn runStateMachine(allocator: Allocator, state: []const u8, state_handler: S
     const interface = PluginInterface.create(allocator);
 
     if (std.mem.eql(u8, state, StateMachine.V1.recipient)) {
-        var file_keys: ArrayList([age.file_key_size]u8) = .empty;
+        var file_keys: ArrayListUnmanaged([age.file_key_size]u8) = .empty;
         errdefer file_keys.deinit(allocator);
 
         const ctx = state_handler.v1_identity.context;
@@ -69,6 +69,14 @@ pub fn runStateMachine(allocator: Allocator, state: []const u8, state_handler: S
         }
     } else if (std.mem.eql(u8, state, StateMachine.V1.identity)) {
         const ctx = state_handler.v1_identity.context;
+        var stanzas_files: ArrayListUnmanaged(ArrayListUnmanaged(Stanza)) = .empty;
+        errdefer {
+            for (stanzas_files.items) |*stanzas| {
+                for (stanzas.items) |s| s.destroy();
+                stanzas.deinit(allocator);
+            }
+            stanzas_files.deinit(allocator);
+        }
         while (true) {
             const response = try interface.waitForResponse();
             defer response.destroy();
@@ -84,6 +92,8 @@ pub fn runStateMachine(allocator: Allocator, state: []const u8, state_handler: S
                     return Error.MalformedCommandFromClient;
                 }
 
+                const file_index = try std.fmt.parseInt(u8, response.args[0], 10);
+
                 const stanza = try age.Stanza.create(
                     allocator,
                     response.args[1],
@@ -91,10 +101,14 @@ pub fn runStateMachine(allocator: Allocator, state: []const u8, state_handler: S
                     response.body,
                 );
 
-                _ = stanza;
+                if (stanzas_files.items.len < file_index + 1) {
+                    const len_diff = file_index + 1 - stanzas_files.items.len;
+                    try stanzas_files.appendNTimes(allocator, ArrayListUnmanaged(Stanza).empty, len_diff);
+                }
 
-                @panic("Not implemented");
+                try stanzas_files.items[file_index].append(allocator, stanza);
             } else if (std.mem.eql(u8, response.type, "done")) {
+                try state_handler.v1_identity.unwrapFileKeys(ctx, allocator, interface, stanzas_files);
                 break;
             }
         }
@@ -112,7 +126,7 @@ pub const V1IdentityHandler = struct {
     context: *anyopaque,
 
     identity: *const fn (context: *anyopaque, allocator: Allocator, identity: []const u8) anyerror!void,
-    unwrapFileKey: *const fn (context: *anyopaque, allocator: Allocator, interface: PluginInterface, stanzas: []const []const Stanza) anyerror!void,
+    unwrapFileKeys: *const fn (context: *anyopaque, allocator: Allocator, interface: PluginInterface, stanzas: ArrayListUnmanaged(ArrayListUnmanaged(Stanza))) anyerror!void,
 };
 
 pub const PluginInterface = struct {
@@ -222,9 +236,19 @@ pub const PluginInterface = struct {
         return try self.allocator.dupe(u8, res.body);
     }
 
-    pub fn recipientStanza(self: PluginInterface, file_index: usize, stanza: Stanza) Error!void {
-        try self.stdout.writer().print("-> recipient-stanza {} {no-prefix}\n", .{ file_index, stanza });
+    pub fn recipientStanza(self: PluginInterface, file_index: u8, stanza: Stanza) Error!void {
+        const idx = std.fmt.digits2(file_index);
+        try self.stdout.writer().print("-> recipient-stanza {s} {no-prefix}\n", .{ idx, stanza });
 
+        const res = try self.getResponse();
+        defer res.destroy();
+
+        if (!std.mem.eql(u8, res.type, "ok")) return Error.UnknownResponseFromClient;
+    }
+
+    pub fn fileKey(self: PluginInterface, file_index: u8, file_key: []const u8) Error!void {
+        const idx = std.fmt.digits2(file_index);
+        try self.sendCommand("file-key", &.{&idx}, file_key);
         const res = try self.getResponse();
         defer res.destroy();
 
