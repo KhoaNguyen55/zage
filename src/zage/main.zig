@@ -2,6 +2,7 @@ const std = @import("std");
 
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayListUnmanaged;
+const builtin = @import("builtin");
 
 const clap = @import("clap");
 const age = @import("age");
@@ -22,10 +23,17 @@ fn printUsage() void {
 }
 
 pub fn main() !void {
-    var gpa = std.heap.DebugAllocator(.{}).init;
-    defer {
-        const leak = gpa.deinit();
-        std.debug.assert(leak == .ok);
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
+
+    const allocator, const is_debug = gpa: {
+        break :gpa switch (builtin.mode) {
+            .Debug, .ReleaseSafe => .{ gpa.allocator(), true },
+            .ReleaseFast, .ReleaseSmall => .{ std.heap.smp_allocator, false },
+        };
+    };
+    defer if (is_debug) {
+        _ = gpa.deinit();
+    };
     }
 
     const allocator = gpa.allocator();
