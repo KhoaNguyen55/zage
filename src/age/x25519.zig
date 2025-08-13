@@ -202,6 +202,31 @@ pub const X25519Identity = struct {
 
         return null;
     }
+
+    pub fn generate() X25519Identity {
+        const key = X25519.KeyPair.generate();
+        return .{ .secret_key = key.secret_key, .our_public_key = key.public_key };
+    }
+
+    pub fn format(
+        self: X25519Identity,
+        comptime fmt: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) anyerror!void {
+        // we know x25519 doesn't change size, so its safe to use a fba here
+        const max_size = 512;
+        var buf: [max_size]u8 = undefined;
+        var fba = std.heap.FixedBufferAllocator.init(&buf);
+        const alloc = fba.allocator();
+        if (std.mem.eql(u8, fmt, "secret")) {
+            const encoded_secret = try bech32.encode(alloc, secret_key_hrp, &self.secret_key);
+            try writer.print("{s}", .{encoded_secret});
+        } else if (std.mem.eql(u8, fmt, "public")) {
+            const encoded_public = try bech32.encode(alloc, public_key_hrp, &self.our_public_key);
+            try writer.print("{s}", .{encoded_public});
+        }
+    }
 };
 
 test "encrypt/decrypt file_key" {
