@@ -50,7 +50,7 @@ With recipient: `zage decrypt -i <private_key_file> <input_file>`
 
 [Documentation](https://khoanguyen55.github.io/zage/)
 
-The library is for `zig v0.14.0` for now.
+The library is for `zig v0.14.1` for now.
 
 To install as a zig library you can run the `zig fetch` command:
 
