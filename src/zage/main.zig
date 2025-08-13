@@ -10,16 +10,24 @@ const age_plugin = @import("age_plugin");
 const client = @import("client.zig");
 const getInput = client.getInput;
 
-const fatal = std.zig.fatal;
+const fatal = std.process.fatal;
 const assert = std.debug.assert;
 
-fn printUsage() void {
-    std.debug.print(
-        \\Usage:
-        \\  zage [--encrypt] (-i <file>... -r <string>... -R <file>... | -p) -o <file> <file>
-        \\  zage [--decrypt] (-i <file>... -r <string>... -R <file>...) [-o <file> --force] <file>
-        \\
-    , .{});
+const SubCommand = enum {
+    help,
+    encrypt,
+    decrypt,
+    keygen,
+};
+
+fn parseCommand(str: []const u8) !SubCommand {
+    const cmd = std.meta.stringToEnum(SubCommand, str);
+    return cmd orelse SubCommand.help;
+}
+
+fn printUsageHelp(comptime usage: []const u8, comptime params: anytype) !void {
+    std.debug.print(usage, .{});
+    return clap.help(std.io.getStdErr().writer(), clap.Help, params, .{});
 }
 
 pub fn main() !void {
@@ -34,21 +42,189 @@ pub fn main() !void {
     defer if (is_debug) {
         _ = gpa.deinit();
     };
+
+    var iter = try std.process.ArgIterator.initWithAllocator(allocator);
+    defer iter.deinit();
+
+    _ = iter.next();
+
+    const main_params = comptime clap.parseParamsComptime(
+        \\-h, --help    Display this help and exit.
+        \\<command>
+        \\
+    );
+
+    const usage =
+        \\ Usage: zage (encrypt | decrypt | keygen) [options]
+        \\
+    ;
+
+    const main_parsers = .{ .command = parseCommand };
+
+    var diag = clap.Diagnostic{};
+    var res = clap.parseEx(clap.Help, &main_params, main_parsers, &iter, .{
+        .diagnostic = &diag,
+        .allocator = allocator,
+        .terminating_positional = 0,
+    }) catch |err| {
+        try diag.report(std.io.getStdErr().writer(), err);
+        return printUsageHelp(usage, &main_params);
+    };
+    defer res.deinit();
+
+    if (res.args.help != 0 or res.positionals[0] == null) {
+        return printUsageHelp(usage, &main_params);
     }
 
-    const allocator = gpa.allocator();
+    const command = res.positionals[0].?;
+    switch (command) {
+        .keygen => try keygenSubCmd(allocator, &iter),
+        .decrypt => try decryptSubCmd(allocator, &iter),
+        .encrypt => try encryptSubCmd(allocator, &iter),
+        else => return printUsageHelp(usage, &main_params),
+    }
+}
 
+fn keygenSubCmd(allocator: std.mem.Allocator, iter: *std.process.ArgIterator) !void {
+    const usage =
+        \\ Usage: zage keygen <file>
+        \\
+    ;
     const params = comptime clap.parseParamsComptime(
         \\-h, --help                        Display this help and exit.
-        \\-e, --encrypt                     Encrypt input to output, default.
-        \\-d, --decrypt                     Decrypt input to output.
+        \\<file>                            Path to file to write key into.
+        \\
+    );
+
+    const parsers = comptime .{
+        .file = clap.parsers.string,
+    };
+
+    var diag = clap.Diagnostic{};
+    var res = clap.parseEx(clap.Help, &params, parsers, iter, .{
+        .allocator = allocator,
+        .diagnostic = &diag,
+    }) catch |err| {
+        diag.report(std.io.getStdErr().writer(), err) catch {};
+        return printUsageHelp(usage, &params);
+    };
+    defer res.deinit();
+
+    const args = res.args;
+
+    if (args.help != 0) {
+        return printUsageHelp(usage, &params);
+    }
+
+    const new_key = age.x25519.X25519Identity.generate();
+    const output = blk: {
+        if (res.positionals[0]) |path| {
+            break :blk std.fs.cwd().createFile(path, .{}) catch |err| {
+                fatal("Can't open file '{s}': {s}", .{ path, @errorName(err) });
+            };
+        } else {
+            break :blk std.io.getStdOut();
+        }
+    };
+    defer output.close();
+
+    const output_fmt =
+        \\# Created: TODO
+        \\# Public key: {public}
+        \\{secret}
+        \\
+    ;
+    try output.writer().print(output_fmt, .{ new_key, new_key });
+    if (!output.isTty()) {
+        std.debug.print("public key: {public}\n", .{new_key});
+    }
+}
+
+fn decryptSubCmd(allocator: std.mem.Allocator, iter: *std.process.ArgIterator) !void {
+    const usage =
+        \\ Usage: zage decrypt [--force] [-i <file>] [-o <file>] <file>
+        \\
+    ;
+    const params = comptime clap.parseParamsComptime(
+        \\-h, --help                        Display this help and exit.
         \\    --force                       Override output file when decrypting.
-        \\-i, --identity-file <file>...     Encrypt/Decrypt using identity at file, can be repeated.
+        \\-i, --identity-file <file>...     Decrypt using identity at file, can be repeated.
+        \\                                  If the file is encrypted using a passphrase it will be detect automatically.
+        \\-o, --output <file>               Path to output file, default to stdout.
+        \\    --stdin                       Use stdin instead of a file path to decrypt.
+        \\<file>                            Path to file to decrypt.
+        \\
+    );
+
+    const parsers = comptime .{
+        .file = clap.parsers.string,
+    };
+
+    var diag = clap.Diagnostic{};
+    var res = clap.parseEx(clap.Help, &params, parsers, iter, .{
+        .allocator = allocator,
+        .diagnostic = &diag,
+    }) catch |err| {
+        diag.report(std.io.getStdErr().writer(), err) catch {};
+        return printUsageHelp(usage, &params);
+    };
+    defer res.deinit();
+
+    const args = res.args;
+
+    if (args.help != 0) {
+        return printUsageHelp(usage, &params);
+    }
+
+    const input = blk: {
+        if (args.stdin != 0) {
+            break :blk std.io.getStdIn();
+        } else {
+            const path = res.positionals[0] orelse fatal("Missing input file.", .{});
+            break :blk std.fs.cwd().openFile(path, .{}) catch |err| {
+                fatal("Can't open file '{s}': {s}", .{ path, @errorName(err) });
+            };
+        }
+    };
+    defer input.close();
+
+    const output = blk: {
+        if (args.output) |path| {
+            var opt: std.fs.File.CreateFlags = .{ .truncate = false };
+            if (args.force == 0) {
+                opt.exclusive = true;
+            }
+
+            break :blk std.fs.cwd().createFile(path, opt) catch |err| switch (err) {
+                error.PathAlreadyExists => fatal("Decrypting won't override existing file, use --force to override", .{}),
+                else => fatal("Can't open file '{s}': {s}", .{ path, @errorName(err) }),
+            };
+        } else {
+            break :blk std.io.getStdOut();
+        }
+    };
+    defer output.close();
+
+    handleDecryption(allocator, args, input, output) catch |err| {
+        fatal("Can't decrypt file: {s}", .{@errorName(err)});
+    };
+}
+
+fn encryptSubCmd(allocator: std.mem.Allocator, iter: *std.process.ArgIterator) !void {
+    const usage =
+        \\ Usage: zage encrypt (-i <file>... -r <string>... -R <file>... | -p) (-o <file> | --stdout) (<file> | --stdin)
+        \\
+    ;
+    const params = comptime clap.parseParamsComptime(
+        \\-h, --help                        Display this help and exit.
+        \\-i, --identity-file <file>...     Encrypt using identity at file, can be repeated.
         \\-r, --recipient <string>...       Encrypt to recipient, can be repeated.
         \\-R, --recipient-file <file>...    Encrypt to recipients at file, can be repeated.
         \\-p, --passphrase                  Encrypt using passphrase.
-        \\-o, --output <file>               Path to output file, default to stdout when decrypting.
-        \\<file>                            Path to file to encrypt or decrypt.
+        \\-o, --output <file>               Path to output file.
+        \\    --stdout                      Output encryted file to stdout.
+        \\    --stdin                       Use stdin instead of a file path to encrypt.
+        \\<file>                            Path to file to encrypt
         \\
     );
 
@@ -58,55 +234,45 @@ pub fn main() !void {
     };
 
     var diag = clap.Diagnostic{};
-    var res = clap.parse(clap.Help, &params, parsers, .{
+    var res = clap.parseEx(clap.Help, &params, parsers, iter, .{
         .allocator = allocator,
         .diagnostic = &diag,
     }) catch |err| {
         diag.report(std.io.getStdErr().writer(), err) catch {};
-        return err;
+        return printUsageHelp(usage, &params);
     };
     defer res.deinit();
 
     const args = res.args;
 
     if (args.help != 0) {
-        printUsage();
-        std.debug.print("Options:\n", .{});
-        return clap.help(std.io.getStdErr().writer(), clap.Help, &params, .{});
+        return printUsageHelp(usage, &params);
     }
 
     const input = blk: {
-        const path = res.positionals[0] orelse fatal("Missing input file.", .{});
-        break :blk std.fs.cwd().openFile(path, .{}) catch |err| {
-            fatal("Can't open file '{s}': {s}", .{ path, @errorName(err) });
-        };
+        if (args.stdin != 0) {
+            break :blk std.io.getStdIn();
+        } else {
+            const path = res.positionals[0] orelse fatal("Missing input file.", .{});
+            break :blk std.fs.cwd().openFile(path, .{}) catch |err| {
+                fatal("Can't open file '{s}': {s}", .{ path, @errorName(err) });
+            };
+        }
     };
     defer input.close();
 
     const output = blk: {
         if (args.output) |path| {
-            var opt: std.fs.File.CreateFlags = .{ .truncate = false };
-            if (args.decrypt != 0 and args.force == 0) {
-                opt.exclusive = true;
-            }
-
-            break :blk std.fs.cwd().createFile(path, opt) catch |err| switch (err) {
-                error.PathAlreadyExists => fatal("Decrypting won't override existing file, use --force to override", .{}),
+            break :blk std.fs.cwd().createFile(path, .{ .truncate = false }) catch |err| switch (err) {
                 else => fatal("Can't open file '{s}': {s}", .{ path, @errorName(err) }),
             };
-        } else if (args.decrypt != 0) {
+        } else if (args.stdout != 0) {
             break :blk std.io.getStdOut();
         } else {
-            fatal("Won't output binary to stdout, use -o <file>", .{});
+            fatal("Use -o <file>, or force output binary to stdout with --stdout.", .{});
         }
     };
-    defer {
-        output.close();
-    }
-
-    if (args.encrypt != 0 and args.decrypt != 0) {
-        fatal("Can't encrypt and decrypt at the same time.", .{});
-    }
+    defer output.close();
 
     if (args.passphrase != 0 and (args.recipient.len != 0 or
         args.@"recipient-file".len != 0 or
@@ -115,8 +281,7 @@ pub fn main() !void {
         fatal("Passphrase can not be use in conjuction with recipient or identity.", .{});
     }
 
-    if (args.decrypt == 0 and
-        args.passphrase == 0 and
+    if (args.passphrase == 0 and
         args.recipient.len == 0 and
         args.@"recipient-file".len == 0 and
         args.@"identity-file".len == 0)
@@ -124,15 +289,13 @@ pub fn main() !void {
         fatal("Missing identity, recipient or passphrase.", .{});
     }
 
-    if (args.decrypt != 0) {
-        handleDecryption(allocator, args, input, output) catch |err| {
-            fatal("Can't decrypt file: {s}", .{@errorName(err)});
-        };
-    } else {
-        handleEncryption(allocator, args, input, output) catch |err| {
-            fatal("Can't encrypt file: {s}", .{@errorName(err)});
-        };
+    if (args.stdin != 0 and args.passphrase != 0) {
+        fatal("Encryption using passphrase and stdin is not supported.", .{});
     }
+
+    handleEncryption(allocator, args, input, output) catch |err| {
+        fatal("Can't encrypt file: {s}", .{@errorName(err)});
+    };
 }
 
 fn handleDecryption(allocator: Allocator, args: anytype, input: std.fs.File, output: std.fs.File) !void {
@@ -143,8 +306,8 @@ fn handleDecryption(allocator: Allocator, args: anytype, input: std.fs.File, out
         break :blk std.mem.eql(u8, decryptor.header.recipients.items[0].type, "scrypt");
     };
 
-    if (args.passphrase != 0) {
-        std.debug.print("For decryption, passphrase protected files are automatically detected, the -p flag are ignored.\n", .{});
+    if (args.stdin != 0 and expect_passphrase) {
+        fatal("Decryption using passphrase and stdin is not supported.", .{});
     }
 
     if (expect_passphrase) {
@@ -163,6 +326,8 @@ fn handleDecryption(allocator: Allocator, args: anytype, input: std.fs.File, out
         try decryptor.addIdentity(identity);
     } else if (args.@"identity-file".len != 0) {
         try addIdentityFromFiles(allocator, .{ .decryptor = &decryptor }, args.@"identity-file");
+    } else {
+        fatal("Missing identity file.", .{});
     }
 
     decryptor.finalizeIdentities() catch |err| switch (err) {
@@ -216,7 +381,7 @@ fn handleEncryption(allocator: Allocator, args: anytype, input: std.fs.File, out
     const buffer = try input.readToEndAlloc(allocator, std.math.maxInt(usize));
     defer allocator.free(buffer);
 
-    try output.setEndPos(0);
+    if (!output.isTty()) try output.setEndPos(0);
 
     try encryptor.finalizeRecipients(output.writer().any());
     try encryptor.update(buffer);
@@ -273,7 +438,9 @@ fn addIdentityFromFiles(allocator: Allocator, processor: AgeProcessor, paths: []
         }) {
             file.reader().streamUntilDelimiter(identity_string.writer(allocator), '\n', null) catch |err| {
                 switch (err) {
-                    error.EndOfStream => break,
+                    error.EndOfStream => {
+                        if (identity_string.items.len == 0) break;
+                    },
                     else => return err,
                 }
             };
@@ -335,7 +502,9 @@ fn addRecipientFromFiles(allocator: Allocator, encryptor: *age.AgeEncryptor, pat
         }) {
             file.reader().streamUntilDelimiter(recipient_string.writer(allocator), '\n', null) catch |err| {
                 switch (err) {
-                    error.EndOfStream => break,
+                    error.EndOfStream => {
+                        if (recipient_string.items.len == 0) break;
+                    },
                     else => return err,
                 }
             };
