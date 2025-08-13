@@ -104,36 +104,36 @@ pub fn parseIdentity(
     return .{ plugin_name, plugin_identity.data };
 }
 
-test "parse recipient" {
+test "encode/parsing recipient" {
     const testing = std.testing;
     const test_alloc = testing.allocator;
 
-    const recipient_string = try bech32.encode(test_alloc, "age1testname", "testdata");
-    defer test_alloc.free(recipient_string);
+    const recipient = try encodeRecipient(test_alloc, "testplugin", "testdata");
+    defer test_alloc.free(recipient);
 
-    const name, const data = try parseRecipient(test_alloc, recipient_string);
+    const name, const data = try parseRecipient(test_alloc, recipient);
     defer {
         test_alloc.free(name);
         test_alloc.free(data);
     }
 
-    try testing.expectEqualStrings("testname", name);
+    try testing.expectEqualStrings("testplugin", name);
     try testing.expectEqualStrings("testdata", data);
 }
 
-test "parse identity" {
+test "encode/parsing identity" {
     const testing = std.testing;
     const test_alloc = testing.allocator;
 
-    const identity_string = try bech32.encode(test_alloc, "AGE-PLUGIN-TESTNAME-", "testdata");
-    defer test_alloc.free(identity_string);
+    const identity = try encodeIdentity(test_alloc, "testplugin", "testdata");
+    defer test_alloc.free(identity);
 
-    const name, const data = try parseIdentity(test_alloc, identity_string);
+    const name, const data = try parseIdentity(test_alloc, identity);
     defer {
         test_alloc.free(name);
         test_alloc.free(data);
     }
 
-    try testing.expectEqualStrings("testname", name);
+    try testing.expectEqualStrings("testplugin", name);
     try testing.expectEqualStrings("testdata", data);
 }

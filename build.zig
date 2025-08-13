@@ -58,7 +58,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const lib_plugin_unit_tests = b.addTest(.{
-        .name = "unit_test",
+        .name = "plugin_unit_test",
         .root_module = age_plugin,
     });
 

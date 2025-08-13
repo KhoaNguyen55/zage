@@ -273,3 +273,7 @@ pub const PluginInterface = struct {
 
     // pub fn labels(self: PluginInterface, label: []const []const u8) Error!void {}
 };
+
+test {
+    _ = @import("parser.zig");
+}
