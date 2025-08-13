@@ -1,8 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayListUnmanaged;
-const testing = std.testing;
-const test_allocator = testing.allocator;
 
 const assert = std.debug.assert;
 const shl = std.math.shl;
@@ -260,6 +258,8 @@ pub fn decode(allocator: Allocator, string: []const u8) (Error || Allocator.Erro
 }
 
 test "decode valid strings" {
+    const testing = std.testing;
+    const test_allocator = testing.allocator;
     const valid_bech32: []const []const u8 = &.{
         "A12UEL5L",
         "a12uel5l",
@@ -289,6 +289,8 @@ test "decode valid strings" {
 }
 
 test "decode invalid strings" {
+    const testing = std.testing;
+    const test_allocator = testing.allocator;
     const invalid_seperator: []const []const u8 = &.{
         "li1dgmt3",
         "split1a2y9w", // too short data part
