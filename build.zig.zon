@@ -1,7 +1,7 @@
 .{
     .name = .age,
     .fingerprint = 0xa13010b2b899300c,
-    .version = "0.6.0",
+    .version = "0.7.0",
     .dependencies = .{
         .clap = .{
             .url = "https://github.com/Hejsil/zig-clap/archive/refs/tags/0.10.0.tar.gz",
